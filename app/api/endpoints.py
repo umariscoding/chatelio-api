@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.services.langchain_service import create_embeddings_and_store_text, get_pinecone_vectorstore, get_rag_chain, stream_response, clear_cache
+from app.services.langchain_service import create_embeddings_and_store_text, get_pinecone_vectorstore, get_rag_chain, stream_response, clear_cache, force_refresh_all_rag_chains
 from app.db.database import update_chat_title,fetch_all_chats,fetch_messages, delete_chat, delete_all_chats, save_chat, save_message
 from app.services.document_service import split_text_for_txt 
 from app.services.fetchdata_service import get_umar_azhar_content
@@ -163,4 +163,20 @@ async def clear_cache_endpoint():
         return {"message": "Cache cleared successfully."}
     except Exception as e:
         print(f"Error clearing cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/force-refresh-prompts/")
+async def force_refresh_prompts_endpoint():
+    """
+    Force refresh all RAG chains with updated prompts.
+    Use this when prompts are updated to ensure all cached chains use the new prompts.
+    
+    Returns:
+        dict: Confirmation message upon successful refresh.
+    """
+    try:
+        force_refresh_all_rag_chains()
+        return {"message": "All RAG chains refreshed with updated prompts successfully."}
+    except Exception as e:
+        print(f"Error refreshing RAG chains: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

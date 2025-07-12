@@ -95,19 +95,20 @@ def get_pinecone_vectorstore() -> PineconeVectorStore:
     
     return _vector_store_cache
 
-def get_rag_chain(llm_model: str = "OpenAI") -> RunnableWithMessageHistory:
+def get_rag_chain(llm_model: str = "OpenAI", force_refresh: bool = False) -> RunnableWithMessageHistory:
     """
     Gets or creates a cached RAG chain for the specified model.
     
     Args:
         llm_model (str): The LLM model to use ("OpenAI" or "Gemini").
+        force_refresh (bool): If True, forces recreation of the RAG chain even if cached.
     
     Returns:
         RunnableWithMessageHistory: Cached conversational RAG chain.
     """
     global _rag_chains_cache
     
-    if llm_model not in _rag_chains_cache:
+    if force_refresh or llm_model not in _rag_chains_cache:
         # Create new RAG chain and cache it
         db = get_pinecone_vectorstore()
         retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})  # Reduced from 6 to 4
@@ -143,8 +144,9 @@ def get_rag_chain(llm_model: str = "OpenAI") -> RunnableWithMessageHistory:
         rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
         
         def get_session_history(chat_id: str) -> BaseChatMessageHistory:
-            store[chat_id] = load_session_history(chat_id)
-            return store[chat_id]
+            # Always load fresh session history to prevent contamination
+            # Don't cache in store to avoid session contamination
+            return load_session_history(chat_id)
         
         conversational_rag_chain = RunnableWithMessageHistory(
             rag_chain,
@@ -205,4 +207,28 @@ def clear_cache():
     global _vector_store_cache, _rag_chains_cache, store
     _vector_store_cache = None
     _rag_chains_cache.clear()
-    store.clear()  # Clear session history cache as well
+    store.clear()  # Clear any remaining contaminated session data
+    print("All caches cleared including contaminated session store")
+
+def force_refresh_all_rag_chains():
+    """
+    Forces recreation of all RAG chains with updated prompts.
+    This is useful when prompts are updated and you want to ensure
+    all cached chains use the new prompts.
+    """
+    global _rag_chains_cache
+    # Clear existing cache first
+    _rag_chains_cache.clear()
+    
+    # Pre-create fresh RAG chains for available models
+    try:
+        get_rag_chain("OpenAI", force_refresh=True)
+    except Exception as e:
+        print(f"Warning: Could not refresh OpenAI RAG chain: {e}")
+    
+    try:
+        get_rag_chain("Gemini", force_refresh=True)
+    except Exception as e:
+        print(f"Warning: Could not refresh Gemini RAG chain: {e}")
+        
+    print("RAG chains cache cleared and available models refreshed")
