@@ -1,0 +1,166 @@
+from fastapi import APIRouter, HTTPException
+from app.services.langchain_service import create_embeddings_and_store_text, get_pinecone_vectorstore, get_rag_chain, stream_response, clear_cache
+from app.db.database import update_chat_title,fetch_all_chats,fetch_messages, delete_chat, delete_all_chats, save_chat, save_message
+from app.services.document_service import split_text_for_txt 
+from app.services.fetchdata_service import get_umar_azhar_content
+from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from io import StringIO
+from typing import List
+from app.models.models import QueryModel
+
+router = APIRouter()
+
+@router.get("/get-all-messages/{chat_id}")
+async def get_all_messages(chat_id: str) -> List[dict]:
+    """
+    Retrieve all messages for a specific chat.
+    
+    Args:
+        chat_id (str): The unique identifier of the chat
+        
+    Returns:
+        List[dict]: A list of message dictionaries containing message details
+    """
+    return await fetch_messages(chat_id) 
+
+@router.get("/get-all-chats")
+async def get_all_chats() -> List[dict]:
+    """
+    Retrieve all available chats.
+    
+    Returns:
+        List[dict]: A list of chat dictionaries containing chat details
+    """
+    return await fetch_all_chats()
+
+@router.post("/edit-chat-title/{chat_id}/{new_title}")
+async def edit_chat_title(chat_id: str, new_title: str) -> List[dict]:
+    """
+    Update the title of a specific chat.
+    
+    Args:
+        chat_id (str): The unique identifier of the chat
+        new_title (str): The new title to set for the chat
+        
+    Returns:
+        List[dict]: A list containing a success message
+    """
+    await update_chat_title(chat_id, new_title)
+    return [{"message": f"Chat title updated successfully to '{new_title}'."}]
+
+@router.post("/delete-chat/{chat_id}")
+async def delete_chat_endpoint(chat_id: str) -> dict:
+    """
+    Delete a specific chat.
+    
+    Args:
+        chat_id (str): The unique identifier of the chat to delete
+        
+    Returns:
+        dict: A success message confirmation
+    """
+    await delete_chat(chat_id)
+    return {"message": "Chat deleted successfully."}
+
+@router.post("/delete-all-chats/")
+async def delete_all_chats_endpoint() -> dict:
+    """
+    Delete all chats from the system.
+    
+    Returns:
+        dict: A success message confirmation
+    """
+    await delete_all_chats()
+    return {"message": "All chats deleted successfully."}
+
+@router.post("/save-chat/{chat_id}/{chat_name}")
+async def save_chat_endpoint(chat_id: str, chat_name: str) -> dict:
+    """
+    Save a new chat with the specified ID and name.
+    
+    Args:
+        chat_id (str): The unique identifier for the new chat
+        chat_name (str): The name of the new chat
+        
+    Returns:
+        dict: A success message confirmation
+    """
+    await save_chat(chat_id, chat_name)
+    return {"message": "Chat saved successfully."} 
+
+@router.post("/process-txt/")
+async def process_txt_file(query_model: QueryModel) -> StreamingResponse:
+    """
+    Process a text query using RAG (Retrieval-Augmented Generation) with optimized caching.
+    
+    Args:
+        query_model (QueryModel): The query model containing chat_id, chat_name, question, and model details
+        
+    Returns:
+        StreamingResponse: A streaming response containing the AI-generated answer
+        
+    Raises:
+        HTTPException: If there's an error during processing
+    """
+    try:
+        # Use cached RAG chain for better performance
+        ragchain = get_rag_chain(query_model.model)
+        await save_chat(query_model.chat_id, query_model.chat_name)
+        
+        response_buffer = StringIO()
+        
+        async def optimized_stream_response(query, chain, chat_id):
+            async for chunk in stream_response(query, chain, chat_id):
+                response_buffer.write(chunk)
+                yield chunk
+        
+        async def stream_and_save():
+            complete_response = response_buffer.getvalue()
+            await save_message(query_model.chat_id, "human", query_model.question)
+            await save_message(query_model.chat_id, "ai", complete_response)
+            
+        async def wrapped_response():
+            async for chunk in optimized_stream_response(query_model.question, ragchain, query_model.chat_id):
+                yield chunk
+            await stream_and_save()
+            
+        return StreamingResponse(wrapped_response(), media_type="text/plain")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/update-data/")
+async def save_processed_output():
+    """
+    Endpoint to update and process static content about Umar Azhar, creating embeddings and storing them in Pinecone.
+    
+    Returns:
+        dict: Confirmation message upon successful processing.
+    """
+    try:
+        output_content = get_umar_azhar_content()
+        # create chunks to creating embedding
+        chunks = split_text_for_txt(output_content)
+        
+        # Create embeddings and store them in Pinecone (this clears cache automatically)
+        create_embeddings_and_store_text(chunks)
+        
+        return {"message": "Processed Umar Azhar content and embeddings saved successfully."}
+    except Exception as e:
+        print(f"Error saving processed output: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/clear-cache/")
+async def clear_cache_endpoint():
+    """
+    Clear all cached objects for performance optimization.
+    
+    Returns:
+        dict: Confirmation message upon successful cache clearing.
+    """
+    try:
+        clear_cache()
+        return {"message": "Cache cleared successfully."}
+    except Exception as e:
+        print(f"Error clearing cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
