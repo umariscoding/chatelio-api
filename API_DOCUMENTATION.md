@@ -1,7 +1,7 @@
 # Multi-Tenant Chatbot API Documentation
 
 ## Overview
-This API provides authentication and user management for a multi-tenant chatbot platform. Companies can register, manage users, and provide chatbot services to both registered users and guest sessions.
+This API provides authentication, user management, and multi-tenant chat functionality for a chatbot platform. Companies can register, manage users, and provide AI-powered chatbot services to both registered users and guest sessions with company-specific knowledge bases.
 
 ## Base URL
 ```
@@ -529,6 +529,324 @@ Check user management service health.
 
 ---
 
+## Multi-Tenant Chat Endpoints
+
+### 1. Send Message
+**POST** `/chat/send`
+
+Send a message to the AI chatbot and receive a streaming response. Works for both registered users and guest sessions with company-specific knowledge bases.
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+#### Request Body
+```json
+{
+  "message": "string",           // User message (required)
+  "chat_id": "string",           // Chat UUID (optional, auto-generated if not provided)
+  "chat_title": "string",        // Chat title (optional, defaults to "New Chat")
+  "model": "string"              // AI model to use (optional, defaults to "Gemini")
+}
+```
+
+#### Response (200 OK)
+**Server-Sent Events (SSE) Stream**
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+X-Chat-ID: <chat_id>
+
+data: {"chat_id": "uuid", "type": "start"}
+
+data: {"content": "Hello! How can I help you today?", "type": "chunk"}
+
+data: {"content": " I'm here to assist with any questions.", "type": "chunk"}
+
+data: {"type": "end"}
+```
+
+#### Error Responses
+```json
+// 401 Unauthorized - Invalid token
+{
+  "detail": "Could not validate credentials"
+}
+
+// 500 Internal Server Error - Processing failed
+{
+  "detail": "Failed to send message: <error_message>"
+}
+```
+
+---
+
+### 2. Get Chat History
+**GET** `/chat/history/{chat_id}`
+
+Retrieve the complete message history for a specific chat. Only accessible by the chat owner.
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+```
+
+#### Parameters
+- `chat_id` (path): Chat UUID
+
+#### Response (200 OK)
+```json
+{
+  "messages": [
+    {
+      "message_id": "uuid",
+      "chat_id": "uuid",
+      "role": "human",
+      "content": "Hello, how are you?",
+      "timestamp": "2024-01-01T00:00:00.000000"
+    },
+    {
+      "message_id": "uuid",
+      "chat_id": "uuid",
+      "role": "ai",
+      "content": "Hello! I'm doing well, thank you for asking. How can I help you today?",
+      "timestamp": "2024-01-01T00:00:05.000000"
+    }
+  ]
+}
+```
+
+#### Error Responses
+```json
+// 404 Not Found - Chat not found or access denied
+{
+  "detail": "Chat not found or access denied"
+}
+
+// 500 Internal Server Error - Fetch failed
+{
+  "detail": "Failed to fetch chat history: <error_message>"
+}
+```
+
+---
+
+### 3. List Chats
+**GET** `/chat/list`
+
+Get a list of all chats for the current user or guest session. Only shows chats belonging to the same company.
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+```
+
+#### Response (200 OK)
+```json
+{
+  "chats": [
+    {
+      "chat_id": "uuid",
+      "company_id": "uuid",
+      "title": "My First Chat",
+      "user_id": "uuid",
+      "session_id": null,
+      "created_at": "2024-01-01T00:00:00.000000",
+      "updated_at": "2024-01-01T00:05:00.000000"
+    },
+    {
+      "chat_id": "uuid",
+      "company_id": "uuid",
+      "title": "Technical Support",
+      "user_id": "uuid",
+      "session_id": null,
+      "created_at": "2024-01-01T01:00:00.000000",
+      "updated_at": "2024-01-01T01:10:00.000000"
+    }
+  ]
+}
+```
+
+#### Error Responses
+```json
+// 401 Unauthorized - Invalid token
+{
+  "detail": "Could not validate credentials"
+}
+
+// 500 Internal Server Error - Fetch failed
+{
+  "detail": "Failed to fetch chats: <error_message>"
+}
+```
+
+---
+
+### 4. Update Chat Title
+**PUT** `/chat/title/{chat_id}`
+
+Update the title of a specific chat. Only accessible by the chat owner.
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+#### Parameters
+- `chat_id` (path): Chat UUID
+
+#### Request Body
+```json
+{
+  "title": "string"             // New chat title (required)
+}
+```
+
+#### Response (200 OK)
+```json
+{
+  "message": "Chat title updated successfully"
+}
+```
+
+#### Error Responses
+```json
+// 404 Not Found - Chat not found or access denied
+{
+  "detail": "Chat not found or access denied"
+}
+
+// 500 Internal Server Error - Update failed
+{
+  "detail": "Failed to update chat title: <error_message>"
+}
+```
+
+---
+
+### 5. Delete Chat
+**DELETE** `/chat/{chat_id}`
+
+Delete a specific chat and all its messages. Only accessible by the chat owner.
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+```
+
+#### Parameters
+- `chat_id` (path): Chat UUID
+
+#### Response (200 OK)
+```json
+{
+  "message": "Chat deleted successfully"
+}
+```
+
+#### Error Responses
+```json
+// 404 Not Found - Chat not found or access denied
+{
+  "detail": "Chat not found or access denied"
+}
+
+// 500 Internal Server Error - Delete failed
+{
+  "detail": "Failed to delete chat: <error_message>"
+}
+```
+
+---
+
+### 6. Setup Knowledge Base
+**POST** `/chat/setup-knowledge-base`
+
+Set up the AI knowledge base for a company. Only accessible by company users (not guests).
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+```
+
+#### Response (200 OK)
+```json
+{
+  "message": "Knowledge base set up successfully"
+}
+```
+
+#### Error Responses
+```json
+// 403 Forbidden - Only company users can set up knowledge base
+{
+  "detail": "Only company users can set up knowledge base"
+}
+
+// 500 Internal Server Error - Setup failed
+{
+  "detail": "Failed to set up knowledge base: <error_message>"
+}
+```
+
+---
+
+### 7. Get Company Info
+**GET** `/chat/company-info`
+
+Get information about the current company context for the chat session.
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+```
+
+#### Response (200 OK)
+```json
+{
+  "company": {
+    "company_id": "uuid",
+    "name": "string",
+    "plan": "free",
+    "status": "active"
+  }
+}
+```
+
+#### Error Responses
+```json
+// 404 Not Found - Company not found
+{
+  "detail": "Company not found"
+}
+
+// 500 Internal Server Error - Fetch failed
+{
+  "detail": "Failed to fetch company info: <error_message>"
+}
+```
+
+---
+
+### 8. Chat Service Health Check
+**GET** `/chat/health`
+
+Check the health status of the chat service.
+
+#### Response (200 OK)
+```json
+{
+  "status": "healthy",
+  "service": "chat"
+}
+```
+
+---
+
 ## Common Error Responses
 
 ### 401 Unauthorized
@@ -647,25 +965,145 @@ if (refreshResponse.ok) {
 
 ---
 
+## Chat Flow Examples
+
+### Basic Chat Flow
+```javascript
+// 1. Send a message
+const response = await fetch('/chat/send', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    message: 'Hello, how can you help me?',
+    chat_title: 'Customer Support'
+  })
+});
+
+// 2. Handle streaming response
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  const lines = chunk.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6));
+      
+      if (data.type === 'start') {
+        console.log('Chat ID:', data.chat_id);
+      } else if (data.type === 'chunk') {
+        console.log('AI Response:', data.content);
+      } else if (data.type === 'end') {
+        console.log('Response complete');
+      }
+    }
+  }
+}
+```
+
+### Chat Management Flow
+```javascript
+// 1. List all chats
+const chatsResponse = await fetch('/chat/list', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+});
+const { chats } = await chatsResponse.json();
+
+// 2. Get chat history
+const historyResponse = await fetch(`/chat/history/${chatId}`, {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+});
+const { messages } = await historyResponse.json();
+
+// 3. Update chat title
+await fetch(`/chat/title/${chatId}`, {
+  method: 'PUT',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    title: 'Updated Chat Title'
+  })
+});
+
+// 4. Delete chat
+await fetch(`/chat/${chatId}`, {
+  method: 'DELETE',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+});
+```
+
+### Company Knowledge Base Setup
+```javascript
+// Company admin sets up knowledge base
+const setupResponse = await fetch('/chat/setup-knowledge-base', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${companyAccessToken}`
+  }
+});
+
+if (setupResponse.ok) {
+  console.log('Knowledge base set up successfully');
+}
+```
+
+---
+
+## Multi-Tenant Architecture
+
+### Company Isolation
+- Each company has its own isolated vector store/knowledge base
+- Users and guests can only access chats within their company
+- AI responses are generated using company-specific knowledge
+
+### User Types & Access Control
+- **Company Users**: Can set up knowledge base, manage company settings
+- **Registered Users**: Can create and manage their own chats within the company
+- **Guest Sessions**: Can chat but with limited access, can be converted to registered users
+
+### Chat Ownership
+- Registered users can only see their own chats
+- Guest sessions can only see chats from their session
+- Company admins cannot see individual user chats (privacy protection)
+
+---
+
 ## Notes for Frontend Development
 
-1. **Token Management**: Always store tokens securely and implement automatic refresh logic
-2. **Error Handling**: Implement proper error handling for all HTTP status codes
-3. **Guest Sessions**: Guest sessions expire after 24 hours
-4. **Progressive Enhancement**: Offer guest-to-user conversion after 2-3 interactions
-5. **Company Context**: Most user operations require a valid company_id
-6. **Session Validation**: Regularly check session validity, especially for long-running applications
+1. **Streaming Responses**: The `/chat/send` endpoint returns Server-Sent Events (SSE) for real-time chat experience
+2. **Chat Management**: Implement proper chat list management with real-time updates
+3. **Company Context**: All chat operations are scoped to the user's company
+4. **Progressive Enhancement**: Encourage guest users to register after a few interactions
+5. **Error Handling**: Implement proper error handling for all chat operations
+6. **Knowledge Base**: Companies need to set up their knowledge base before users can chat
+7. **Auto-save**: Chat history is automatically saved during streaming responses
 
 ---
 
 ## Rate Limiting & Security
 
-- All endpoints are protected against common attacks
-- JWT tokens have appropriate expiration times
-- Password hashing uses bcrypt with salt rounds
-- Session management prevents token replay attacks
-- Input validation on all endpoints
+- All chat endpoints are protected by JWT authentication
+- Company-specific vector stores ensure data isolation
+- Chat access control prevents unauthorized access to other users' chats
+- Streaming responses are properly terminated to prevent resource leaks
+- Input validation on all chat messages and operations
 
 ---
 
-This documentation covers all current authentication and user management endpoints. As you add chat functionality and other features, you can extend this documentation accordingly. 
+This documentation covers the complete multi-tenant chatbot API including authentication, user management, and chat functionality. The system supports both registered users and guest sessions with company-specific AI knowledge bases and proper access control. 

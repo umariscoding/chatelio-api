@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import router as api_router
 from app.api.auth_endpoints import router as auth_router
 from app.api.user_endpoints import router as user_router
+from app.api.chat_endpoints import router as chat_router
 
 app = FastAPI()
 
@@ -40,6 +41,7 @@ async def log_requests(request: Request, call_next):
 # Include the routers
 app.include_router(auth_router)
 app.include_router(user_router)
+app.include_router(chat_router)
 app.include_router(api_router)
 
 # Add this line to make the app importable
