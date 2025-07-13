@@ -104,9 +104,12 @@ async def process_txt_file(query_model: QueryModel) -> StreamingResponse:
         HTTPException: If there's an error during processing
     """
     try:
+        # Save chat and human message BEFORE processing RAG chain
+        await save_chat(query_model.chat_id, query_model.chat_name)
+        await save_message(query_model.chat_id, "human", query_model.question)
+        
         # Use cached RAG chain for better performance
         ragchain = get_rag_chain(query_model.model)
-        await save_chat(query_model.chat_id, query_model.chat_name)
         
         response_buffer = StringIO()
         
@@ -115,15 +118,14 @@ async def process_txt_file(query_model: QueryModel) -> StreamingResponse:
                 response_buffer.write(chunk)
                 yield chunk
         
-        async def stream_and_save():
+        async def save_ai_response():
             complete_response = response_buffer.getvalue()
-            await save_message(query_model.chat_id, "human", query_model.question)
             await save_message(query_model.chat_id, "ai", complete_response)
             
         async def wrapped_response():
             async for chunk in optimized_stream_response(query_model.question, ragchain, query_model.chat_id):
                 yield chunk
-            await stream_and_save()
+            await save_ai_response()
             
         return StreamingResponse(wrapped_response(), media_type="text/plain")
     except Exception as e:
