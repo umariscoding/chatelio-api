@@ -154,6 +154,75 @@ def setup_company_knowledge_base(company_id: str, doc_chunks: List[str]):
     """
     return create_company_vector_store(company_id, doc_chunks)
 
+def process_company_document(company_id: str, document_content: str, doc_id: Optional[str] = None) -> bool:
+    """
+    Process a document for a company's knowledge base.
+    
+    Args:
+        company_id (str): Company ID
+        document_content (str): Document content to process
+        doc_id (str, optional): Document ID for tracking
+    
+    Returns:
+        bool: True if processing was successful
+    """
+    try:
+        # Split document into chunks
+        from app.services.document_service import split_text_for_txt
+        doc_chunks = split_text_for_txt(document_content)
+        
+        # Get or create company vector store
+        vector_store = get_company_vector_store(company_id)
+        
+        # Add document chunks to vector store
+        vector_store.add_texts(doc_chunks)
+        
+        # Clear RAG chain cache for this company to force refresh
+        clear_company_cache(company_id)
+        
+        # Update document status if doc_id is provided
+        if doc_id:
+            import asyncio
+            from app.db.database import update_document_embeddings_status
+            asyncio.create_task(update_document_embeddings_status(doc_id, 'completed'))
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error processing document for company {company_id}: {str(e)}")
+        
+        # Update document status to failed if doc_id is provided
+        if doc_id:
+            import asyncio
+            from app.db.database import update_document_embeddings_status
+            asyncio.create_task(update_document_embeddings_status(doc_id, 'failed'))
+        
+        return False
+
+def clear_company_knowledge_base(company_id: str):
+    """
+    Clear all knowledge base content for a company.
+    
+    Args:
+        company_id (str): Company ID
+    """
+    try:
+        # Get company namespace
+        namespace = get_company_namespace(company_id)
+        
+        # Delete all vectors in the namespace
+        index = pc.Index(BASE_INDEX_NAME)
+        index.delete(delete_all=True, namespace=namespace)
+        
+        # Clear caches
+        clear_company_cache(company_id)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error clearing knowledge base for company {company_id}: {str(e)}")
+        return False
+
 def get_company_rag_chain(company_id: str, llm_model: str = "Gemini") -> RunnableWithMessageHistory:
     """
     Get or create a company-specific RAG chain.

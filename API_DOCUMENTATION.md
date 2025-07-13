@@ -847,6 +847,306 @@ Check the health status of the chat service.
 
 ---
 
+## Document Upload & Knowledge Base Management
+
+### 1. Upload Document File
+**POST** `/chat/upload-document`
+
+Upload a text document to the company's knowledge base. Only accessible by company users.
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+Content-Type: multipart/form-data
+```
+
+#### Request Body (Form Data)
+```
+file: <text_file>             // Text file to upload (max 10MB)
+```
+
+#### Response (200 OK)
+```json
+{
+  "message": "Document uploaded and processed successfully",
+  "document": {
+    "doc_id": "uuid",
+    "kb_id": "uuid",
+    "filename": "document.txt",
+    "content_type": "text/plain",
+    "file_size": 1024,
+    "embeddings_status": "completed",
+    "created_at": "2024-01-01T00:00:00.000000"
+  },
+  "knowledge_base": {
+    "kb_id": "uuid",
+    "company_id": "uuid",
+    "name": "Default Knowledge Base",
+    "description": "Company knowledge base",
+    "status": "ready",
+    "file_count": 1,
+    "created_at": "2024-01-01T00:00:00.000000",
+    "updated_at": "2024-01-01T00:00:00.000000"
+  }
+}
+```
+
+#### Error Responses
+```json
+// 400 Bad Request - Invalid file type
+{
+  "detail": "Only text files are supported"
+}
+
+// 400 Bad Request - File too large
+{
+  "detail": "File size too large. Maximum 10MB allowed."
+}
+
+// 400 Bad Request - Invalid encoding
+{
+  "detail": "File must be valid UTF-8 text"
+}
+
+// 403 Forbidden - Not a company user
+{
+  "detail": "Only company users can upload documents"
+}
+
+// 500 Internal Server Error - Processing failed
+{
+  "detail": "Failed to process document"
+}
+```
+
+---
+
+### 2. Upload Text Content
+**POST** `/chat/upload-text`
+
+Upload text content directly to the company's knowledge base. Only accessible by company users.
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+Content-Type: application/json
+```
+
+#### Request Body
+```json
+{
+  "content": "string",          // Text content to upload (required)
+  "filename": "string"          // Filename for the document (optional, defaults to "document.txt")
+}
+```
+
+#### Response (200 OK)
+```json
+{
+  "message": "Text content uploaded and processed successfully",
+  "document": {
+    "doc_id": "uuid",
+    "kb_id": "uuid",
+    "filename": "document.txt",
+    "content_type": "text/plain",
+    "file_size": 1024,
+    "embeddings_status": "completed",
+    "created_at": "2024-01-01T00:00:00.000000"
+  },
+  "knowledge_base": {
+    "kb_id": "uuid",
+    "company_id": "uuid",
+    "name": "Default Knowledge Base",
+    "description": "Company knowledge base",
+    "status": "ready",
+    "file_count": 1,
+    "created_at": "2024-01-01T00:00:00.000000",
+    "updated_at": "2024-01-01T00:00:00.000000"
+  }
+}
+```
+
+#### Error Responses
+```json
+// 400 Bad Request - Content too large
+{
+  "detail": "Content size too large. Maximum 10MB allowed."
+}
+
+// 403 Forbidden - Not a company user
+{
+  "detail": "Only company users can upload documents"
+}
+
+// 500 Internal Server Error - Processing failed
+{
+  "detail": "Failed to process document"
+}
+```
+
+---
+
+### 3. List Documents
+**GET** `/chat/documents`
+
+List all documents in the company's knowledge base. Only accessible by company users.
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+```
+
+#### Response (200 OK)
+```json
+{
+  "documents": [
+    {
+      "doc_id": "uuid",
+      "kb_id": "uuid",
+      "filename": "document1.txt",
+      "content_type": "text/plain",
+      "file_size": 1024,
+      "embeddings_status": "completed",
+      "created_at": "2024-01-01T00:00:00.000000"
+    },
+    {
+      "doc_id": "uuid",
+      "kb_id": "uuid",
+      "filename": "document2.txt",
+      "content_type": "text/plain",
+      "file_size": 2048,
+      "embeddings_status": "completed",
+      "created_at": "2024-01-01T01:00:00.000000"
+    }
+  ]
+}
+```
+
+#### Error Responses
+```json
+// 403 Forbidden - Not a company user
+{
+  "detail": "Only company users can access documents"
+}
+
+// 500 Internal Server Error - Fetch failed
+{
+  "detail": "Failed to fetch documents: <error_message>"
+}
+```
+
+---
+
+### 4. Get Knowledge Base Info
+**GET** `/chat/knowledge-base`
+
+Get information about the company's knowledge base. Only accessible by company users.
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+```
+
+#### Response (200 OK)
+```json
+{
+  "kb_id": "uuid",
+  "name": "Default Knowledge Base",
+  "description": "Company knowledge base",
+  "status": "ready",
+  "file_count": 5,
+  "created_at": "2024-01-01T00:00:00.000000",
+  "updated_at": "2024-01-01T00:00:00.000000"
+}
+```
+
+#### Error Responses
+```json
+// 403 Forbidden - Not a company user
+{
+  "detail": "Only company users can access knowledge base info"
+}
+
+// 500 Internal Server Error - Fetch failed
+{
+  "detail": "Failed to fetch knowledge base info: <error_message>"
+}
+```
+
+---
+
+### 5. Delete Document
+**DELETE** `/chat/documents/{doc_id}`
+
+Delete a document from the company's knowledge base. Only accessible by company users.
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+```
+
+#### Parameters
+- `doc_id` (path): Document UUID
+
+#### Response (200 OK)
+```json
+{
+  "message": "Document deleted successfully"
+}
+```
+
+#### Error Responses
+```json
+// 404 Not Found - Document not found
+{
+  "detail": "Document not found"
+}
+
+// 403 Forbidden - Not a company user
+{
+  "detail": "Only company users can delete documents"
+}
+
+// 500 Internal Server Error - Delete failed
+{
+  "detail": "Failed to delete document: <error_message>"
+}
+```
+
+---
+
+### 6. Clear Knowledge Base
+**POST** `/chat/clear-knowledge-base`
+
+Clear all content from the company's knowledge base. Only accessible by company users.
+
+#### Headers
+```
+Authorization: Bearer <company_access_token>
+```
+
+#### Response (200 OK)
+```json
+{
+  "message": "Knowledge base cleared successfully"
+}
+```
+
+#### Error Responses
+```json
+// 403 Forbidden - Not a company user
+{
+  "detail": "Only company users can clear knowledge base"
+}
+
+// 500 Internal Server Error - Clear failed
+{
+  "detail": "Failed to clear knowledge base: <error_message>"
+}
+```
+
+---
+
 ## Common Error Responses
 
 ### 401 Unauthorized
@@ -1063,6 +1363,134 @@ if (setupResponse.ok) {
 }
 ```
 
+### Document Upload and Management
+```javascript
+// 1. Upload a document file
+const uploadDocumentFile = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await fetch('/chat/upload-document', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${companyAccessToken}`
+    },
+    body: formData
+  });
+  
+  if (response.ok) {
+    const result = await response.json();
+    console.log('Document uploaded:', result.document);
+    return result;
+  }
+};
+
+// 2. Upload text content directly
+const uploadTextContent = async (content, filename = 'document.txt') => {
+  const response = await fetch('/chat/upload-text', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${companyAccessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      content: content,
+      filename: filename
+    })
+  });
+  
+  if (response.ok) {
+    const result = await response.json();
+    console.log('Text content uploaded:', result.document);
+    return result;
+  }
+};
+
+// 3. List all documents
+const listDocuments = async () => {
+  const response = await fetch('/chat/documents', {
+    headers: {
+      'Authorization': `Bearer ${companyAccessToken}`
+    }
+  });
+  
+  if (response.ok) {
+    const result = await response.json();
+    console.log('Company documents:', result.documents);
+    return result.documents;
+  }
+};
+
+// 4. Get knowledge base information
+const getKnowledgeBase = async () => {
+  const response = await fetch('/chat/knowledge-base', {
+    headers: {
+      'Authorization': `Bearer ${companyAccessToken}`
+    }
+  });
+  
+  if (response.ok) {
+    const kb = await response.json();
+    console.log('Knowledge base info:', kb);
+    return kb;
+  }
+};
+
+// 5. Delete a document
+const deleteDocument = async (docId) => {
+  const response = await fetch(`/chat/documents/${docId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${companyAccessToken}`
+    }
+  });
+  
+  if (response.ok) {
+    console.log('Document deleted successfully');
+    return true;
+  }
+  return false;
+};
+
+// 6. Clear knowledge base
+const clearKnowledgeBase = async () => {
+  const response = await fetch('/chat/clear-knowledge-base', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${companyAccessToken}`
+    }
+  });
+  
+  if (response.ok) {
+    console.log('Knowledge base cleared successfully');
+    return true;
+  }
+  return false;
+};
+
+// Complete document management workflow
+const documentManagementWorkflow = async () => {
+  // Upload multiple documents
+  const documents = [
+    { content: 'Product documentation...', filename: 'product-guide.txt' },
+    { content: 'FAQ content...', filename: 'faq.txt' },
+    { content: 'Support procedures...', filename: 'support.txt' }
+  ];
+  
+  for (const doc of documents) {
+    await uploadTextContent(doc.content, doc.filename);
+  }
+  
+  // Check knowledge base status
+  const kb = await getKnowledgeBase();
+  console.log(`Knowledge base has ${kb.file_count} documents`);
+  
+  // List all documents
+  const allDocs = await listDocuments();
+  console.log('All documents:', allDocs);
+};
+```
+
 ---
 
 ## Multi-Tenant Architecture
@@ -1093,6 +1521,40 @@ if (setupResponse.ok) {
 5. **Error Handling**: Implement proper error handling for all chat operations
 6. **Knowledge Base**: Companies need to set up their knowledge base before users can chat
 7. **Auto-save**: Chat history is automatically saved during streaming responses
+8. **Document Upload**: Support both file upload and direct text content upload for knowledge base management
+9. **File Validation**: Validate file types (text only) and sizes (max 10MB) on the frontend
+10. **Document Management**: Provide UI for companies to view, manage, and delete their uploaded documents
+11. **Knowledge Base Status**: Show knowledge base information and document count to companies
+12. **Company-Only Access**: Document upload and management features are only available to company users, not regular users or guests
+13. **Automatic Processing**: Documents are automatically processed and added to the vector store upon upload
+14. **Real-time Updates**: Consider implementing real-time updates for document processing status
+
+## Document Management Best Practices
+
+1. **File Upload UI**: 
+   - Use drag-and-drop interface for better UX
+   - Show progress indicators during upload
+   - Display file size and type validation messages
+
+2. **Document List Management**:
+   - Show document status (processing, completed, failed)
+   - Allow sorting by date, name, or size
+   - Implement search/filter functionality
+
+3. **Knowledge Base Overview**:
+   - Display total document count and storage used
+   - Show knowledge base status and health
+   - Provide clear actions for management
+
+4. **Error Handling**:
+   - Handle file upload errors gracefully
+   - Show meaningful error messages for validation failures
+   - Implement retry mechanisms for failed uploads
+
+5. **User Experience**:
+   - Show immediate feedback after document upload
+   - Provide document preview capabilities
+   - Allow bulk operations (multiple uploads, batch delete)
 
 ---
 

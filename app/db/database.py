@@ -497,6 +497,289 @@ def load_session_history(company_id: str, chat_id: str) -> ChatMessageHistory:
     return chat_history
 
 # =============================================================================
+# KNOWLEDGE BASE AND DOCUMENT MANAGEMENT
+# =============================================================================
+
+async def get_or_create_knowledge_base(company_id: str, name: str = "Default Knowledge Base", description: str = "Company knowledge base") -> Dict[str, Any]:
+    """
+    Get or create a knowledge base for a company.
+    
+    Args:
+        company_id: Company ID
+        name: Knowledge base name
+        description: Knowledge base description
+        
+    Returns:
+        Dict containing knowledge base information
+    """
+    db = SessionLocal()
+    try:
+        # Check if knowledge base already exists
+        kb = db.query(KnowledgeBase).filter(KnowledgeBase.company_id == company_id).first()
+        if kb:
+            return {
+                "kb_id": kb.kb_id,
+                "company_id": kb.company_id,
+                "name": kb.name,
+                "description": kb.description,
+                "status": kb.status,
+                "file_count": kb.file_count,
+                "created_at": kb.created_at,
+                "updated_at": kb.updated_at
+            }
+        
+        # Create new knowledge base
+        kb = KnowledgeBase(
+            company_id=company_id,
+            name=name,
+            description=description,
+            status='ready'
+        )
+        db.add(kb)
+        db.commit()
+        db.refresh(kb)
+        
+        return {
+            "kb_id": kb.kb_id,
+            "company_id": kb.company_id,
+            "name": kb.name,
+            "description": kb.description,
+            "status": kb.status,
+            "file_count": kb.file_count,
+            "created_at": kb.created_at,
+            "updated_at": kb.updated_at
+        }
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
+
+async def save_document(kb_id: str, filename: str, content: str, content_type: str = "text/plain") -> Dict[str, Any]:
+    """
+    Save a document to a knowledge base.
+    
+    Args:
+        kb_id: Knowledge base ID
+        filename: Document filename
+        content: Document content
+        content_type: Document content type
+        
+    Returns:
+        Dict containing document information
+    """
+    db = SessionLocal()
+    try:
+        # Check if document already exists
+        existing_doc = db.query(Document).filter(
+            Document.kb_id == kb_id,
+            Document.filename == filename
+        ).first()
+        
+        if existing_doc:
+            # Update existing document
+            db.execute(
+                update(Document).where(
+                    Document.doc_id == existing_doc.doc_id
+                ).values(
+                    content=content,
+                    content_type=content_type,
+                    file_size=len(content.encode('utf-8')),
+                    embeddings_status='pending'
+                )
+            )
+            db.commit()
+            db.refresh(existing_doc)
+            document = existing_doc
+        else:
+            # Create new document
+            document = Document(
+                kb_id=kb_id,
+                filename=filename,
+                content=content,
+                content_type=content_type,
+                file_size=len(content.encode('utf-8')),
+                embeddings_status='pending'
+            )
+            db.add(document)
+            db.commit()
+            db.refresh(document)
+            
+            # Update knowledge base file count
+            db.execute(
+                update(KnowledgeBase).where(
+                    KnowledgeBase.kb_id == kb_id
+                ).values(
+                    file_count=KnowledgeBase.file_count + 1
+                )
+            )
+            db.commit()
+        
+        return {
+            "doc_id": document.doc_id,
+            "kb_id": document.kb_id,
+            "filename": document.filename,
+            "content_type": document.content_type,
+            "file_size": document.file_size,
+            "embeddings_status": document.embeddings_status,
+            "created_at": document.created_at
+        }
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
+
+async def get_company_documents(company_id: str) -> List[Dict[str, Any]]:
+    """
+    Get all documents for a company.
+    
+    Args:
+        company_id: Company ID
+        
+    Returns:
+        List of documents
+    """
+    db = SessionLocal()
+    try:
+        documents = db.query(Document).join(KnowledgeBase).filter(
+            KnowledgeBase.company_id == company_id
+        ).all()
+        
+        return [
+            {
+                "doc_id": doc.doc_id,
+                "kb_id": doc.kb_id,
+                "filename": doc.filename,
+                "content_type": doc.content_type,
+                "file_size": doc.file_size,
+                "embeddings_status": doc.embeddings_status,
+                "created_at": doc.created_at
+            }
+            for doc in documents
+        ]
+    except SQLAlchemyError as e:
+        raise e
+    finally:
+        db.close()
+
+async def get_document_content(doc_id: str) -> Optional[str]:
+    """
+    Get document content by document ID.
+    
+    Args:
+        doc_id: Document ID
+        
+    Returns:
+        Document content or None if not found
+    """
+    db = SessionLocal()
+    try:
+        document = db.query(Document).filter(Document.doc_id == doc_id).first()
+        if document:
+            return str(document.content)
+        return None
+    except SQLAlchemyError as e:
+        raise e
+    finally:
+        db.close()
+
+async def update_document_embeddings_status(doc_id: str, status: str):
+    """
+    Update document embeddings processing status.
+    
+    Args:
+        doc_id: Document ID
+        status: New status (pending, processing, completed, failed)
+    """
+    db = SessionLocal()
+    try:
+        db.execute(
+            update(Document).where(
+                Document.doc_id == doc_id
+            ).values(embeddings_status=status)
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+    finally:
+        db.close()
+
+async def get_knowledge_base_by_company(company_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get knowledge base for a company.
+    
+    Args:
+        company_id: Company ID
+        
+    Returns:
+        Knowledge base information or None if not found
+    """
+    db = SessionLocal()
+    try:
+        kb = db.query(KnowledgeBase).filter(KnowledgeBase.company_id == company_id).first()
+        if not kb:
+            return None
+            
+        return {
+            "kb_id": kb.kb_id,
+            "company_id": kb.company_id,
+            "name": kb.name,
+            "description": kb.description,
+            "status": kb.status,
+            "file_count": kb.file_count,
+            "created_at": kb.created_at,
+            "updated_at": kb.updated_at
+        }
+    except SQLAlchemyError as e:
+        raise e
+    finally:
+        db.close()
+
+async def delete_document(doc_id: str, company_id: str) -> bool:
+    """
+    Delete a document from a company's knowledge base.
+    
+    Args:
+        doc_id: Document ID
+        company_id: Company ID (for authorization)
+        
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    db = SessionLocal()
+    try:
+        # Find document with company verification
+        document = db.query(Document).join(KnowledgeBase).filter(
+            Document.doc_id == doc_id,
+            KnowledgeBase.company_id == company_id
+        ).first()
+        
+        if not document:
+            return False
+            
+        # Delete the document
+        kb_id = document.kb_id
+        db.delete(document)
+        
+        # Update knowledge base file count
+        db.execute(
+            update(KnowledgeBase).where(
+                KnowledgeBase.kb_id == kb_id
+            ).values(
+                file_count=KnowledgeBase.file_count - 1
+            )
+        )
+        
+        db.commit()
+        return True
+    except SQLAlchemyError:
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+# =============================================================================
 # BACKWARD COMPATIBILITY LAYER (TEMPORARY)
 # =============================================================================
 

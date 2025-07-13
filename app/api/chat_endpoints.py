@@ -1,16 +1,18 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from io import StringIO
 import uuid
 
-from app.auth.dependencies import get_current_user, UserContext
+from app.auth.dependencies import get_current_user, get_current_company, UserContext
 from app.services.langchain_service import (
     get_company_rag_chain, 
     stream_company_response,
     setup_company_knowledge_base,
-    get_company_vector_store
+    get_company_vector_store,
+    process_company_document,
+    clear_company_knowledge_base
 )
 from app.services.fetchdata_service import get_umar_azhar_content
 from app.services.document_service import split_text_for_txt
@@ -21,7 +23,12 @@ from app.db.database import (
     fetch_company_chats,
     update_chat_title,
     delete_chat,
-    get_company_by_id
+    get_company_by_id,
+    get_or_create_knowledge_base,
+    save_document,
+    get_company_documents,
+    get_document_content,
+    delete_document
 )
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -47,6 +54,22 @@ class ChatList(BaseModel):
 
 class ChatHistory(BaseModel):
     messages: List[Dict[str, Any]]
+
+class DocumentUpload(BaseModel):
+    content: str
+    filename: str = "document.txt"
+
+class DocumentList(BaseModel):
+    documents: List[Dict[str, Any]]
+
+class KnowledgeBaseInfo(BaseModel):
+    kb_id: str
+    name: str
+    description: str
+    status: str
+    file_count: int
+    created_at: Any
+    updated_at: Any
 
 @router.post("/send")
 async def send_message(
@@ -312,6 +335,220 @@ async def health_check():
     Health check endpoint for chat service.
     """
     return {"status": "healthy", "service": "chat"}
+
+@router.post("/upload-document")
+async def upload_document(
+    file: UploadFile = File(...),
+    user: UserContext = Depends(get_current_company)
+):
+    """
+    Upload a text document to the company's knowledge base.
+    Only accessible by company users.
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('text/'):
+            raise HTTPException(
+                status_code=400, 
+                detail="Only text files are supported"
+            )
+        
+        # Validate file size (max 10MB)
+        content = await file.read()
+        if len(content) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(
+                status_code=400,
+                detail="File size too large. Maximum 10MB allowed."
+            )
+        
+        # Decode content
+        try:
+            text_content = content.decode('utf-8')
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be valid UTF-8 text"
+            )
+        
+        # Get or create knowledge base
+        kb = await get_or_create_knowledge_base(user.company_id)
+        
+        # Save document to database
+        document = await save_document(
+            kb_id=kb["kb_id"],
+            filename=file.filename or "document.txt",
+            content=text_content,
+            content_type=file.content_type or "text/plain"
+        )
+        
+        # Process document in background
+        success = process_company_document(
+            company_id=user.company_id,
+            document_content=text_content,
+            doc_id=document["doc_id"]
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process document"
+            )
+        
+        return {
+            "message": "Document uploaded and processed successfully",
+            "document": document,
+            "knowledge_base": kb
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload document: {str(e)}"
+        )
+
+@router.post("/upload-text")
+async def upload_text_content(
+    document_data: DocumentUpload,
+    user: UserContext = Depends(get_current_company)
+):
+    """
+    Upload text content directly to the company's knowledge base.
+    Only accessible by company users.
+    """
+    try:
+        # Validate content size (max 10MB)
+        if len(document_data.content.encode('utf-8')) > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="Content size too large. Maximum 10MB allowed."
+            )
+        
+        # Get or create knowledge base
+        kb = await get_or_create_knowledge_base(user.company_id)
+        
+        # Save document to database
+        document = await save_document(
+            kb_id=kb["kb_id"],
+            filename=document_data.filename,
+            content=document_data.content,
+            content_type="text/plain"
+        )
+        
+        # Process document
+        success = process_company_document(
+            company_id=user.company_id,
+            document_content=document_data.content,
+            doc_id=document["doc_id"]
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process document"
+            )
+        
+        return {
+            "message": "Text content uploaded and processed successfully",
+            "document": document,
+            "knowledge_base": kb
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload text content: {str(e)}"
+        )
+
+@router.get("/documents")
+async def list_documents(
+    user: UserContext = Depends(get_current_company)
+) -> DocumentList:
+    """
+    List all documents in the company's knowledge base.
+    Only accessible by company users.
+    """
+    try:
+        documents = await get_company_documents(user.company_id)
+        return DocumentList(documents=documents)
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch documents: {str(e)}"
+        )
+
+@router.get("/knowledge-base")
+async def get_knowledge_base_info(
+    user: UserContext = Depends(get_current_company)
+) -> KnowledgeBaseInfo:
+    """
+    Get knowledge base information for the company.
+    Only accessible by company users.
+    """
+    try:
+        kb = await get_or_create_knowledge_base(user.company_id)
+        return KnowledgeBaseInfo(**kb)
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch knowledge base info: {str(e)}"
+        )
+
+@router.delete("/documents/{doc_id}")
+async def delete_document_endpoint(
+    doc_id: str,
+    user: UserContext = Depends(get_current_company)
+):
+    """
+    Delete a document from the company's knowledge base.
+    Only accessible by company users.
+    """
+    try:
+        success = await delete_document(doc_id, user.company_id)
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found"
+            )
+        
+        return {"message": "Document deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete document: {str(e)}"
+        )
+
+@router.post("/clear-knowledge-base")
+async def clear_knowledge_base(
+    user: UserContext = Depends(get_current_company)
+):
+    """
+    Clear all content from the company's knowledge base.
+    Only accessible by company users.
+    """
+    try:
+        success = clear_company_knowledge_base(user.company_id)
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to clear knowledge base"
+            )
+        
+        return {"message": "Knowledge base cleared successfully"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear knowledge base: {str(e)}"
+        )
 
 # Helper functions
 async def ensure_company_knowledge_base(company_id: str):
