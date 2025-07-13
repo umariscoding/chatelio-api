@@ -146,7 +146,8 @@ def get_rag_chain(llm_model: str = "OpenAI", force_refresh: bool = False) -> Run
         def get_session_history(chat_id: str) -> BaseChatMessageHistory:
             # Always load fresh session history to prevent contamination
             # Don't cache in store to avoid session contamination
-            return load_session_history(chat_id)
+            # TODO: Need to get company_id from context - using temp default for now
+            return load_session_history("default-company", chat_id)
         
         conversational_rag_chain = RunnableWithMessageHistory(
             rag_chain,
