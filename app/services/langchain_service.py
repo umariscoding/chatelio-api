@@ -15,7 +15,7 @@ from typing import AsyncGenerator, List, Dict, Optional
 from app.core.config import GOOGLE_API_KEY, MODEL_NAME
 import asyncio
 from app.services.prompts import contextualize_q_system_prompt, qa_system_prompt
-from app.db.database import load_session_history
+from app.db.database import load_session_history_old as load_session_history
 
 load_dotenv(dotenv_path='app/.env')
 store = {}
@@ -146,8 +146,8 @@ def get_rag_chain(llm_model: str = "OpenAI", force_refresh: bool = False) -> Run
         def get_session_history(chat_id: str) -> BaseChatMessageHistory:
             # Always load fresh session history to prevent contamination
             # Don't cache in store to avoid session contamination
-            # TODO: Need to get company_id from context - using temp default for now
-            return load_session_history("default-company", chat_id)
+            # Using backward compatibility function for now
+            return load_session_history(chat_id)
         
         conversational_rag_chain = RunnableWithMessageHistory(
             rag_chain,

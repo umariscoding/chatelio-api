@@ -11,7 +11,7 @@ from app.models.models import (
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.messages import HumanMessage, AIMessage
 from app.core.config import DATABASE_URL
-import bcrypt
+from app.utils.password import get_password_hash, verify_password
 
 # Create new database for multi-tenant setup
 DATABASE_URL = "sqlite:///multi_tenant_chat.db"
@@ -33,13 +33,7 @@ def get_db():
     finally:
         db.close()
 
-def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-def verify_password(password: str, hashed: str) -> bool:
-    """Verify a password against its hash."""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+# Password hashing functions imported from auth.jwt module
 
 # =============================================================================
 # COMPANY MANAGEMENT
@@ -57,7 +51,7 @@ async def create_company(name: str, email: str, password: str) -> Dict[str, Any]
     Returns:
         dict: Company information
     """
-    db = next(get_db())
+    db = SessionLocal()
     try:
         # Check if company already exists
         existing = db.query(Company).filter(Company.email == email).first()
@@ -68,7 +62,7 @@ async def create_company(name: str, email: str, password: str) -> Dict[str, Any]
         company = Company(
             name=name,
             email=email,
-            password_hash=hash_password(password)
+            password_hash=get_password_hash(password)
         )
         db.add(company)
         db.commit()
@@ -99,10 +93,10 @@ async def authenticate_company(email: str, password: str) -> Optional[Dict[str, 
     Returns:
         dict: Company information if authenticated, None otherwise
     """
-    db = next(get_db())
+    db = SessionLocal()
     try:
         company = db.query(Company).filter(Company.email == email).first()
-        if company and verify_password(password, str(company.password_hash)):
+        if company and verify_password(plain_password=password, hashed_password=str(company.password_hash)):
             return {
                 "company_id": company.company_id,
                 "name": company.name,
@@ -118,7 +112,7 @@ async def authenticate_company(email: str, password: str) -> Optional[Dict[str, 
 
 async def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
     """Get company information by ID."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         company = db.query(Company).filter(Company.company_id == company_id).first()
         if company:
@@ -142,8 +136,17 @@ async def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
 
 async def create_user(company_id: str, email: str, name: str) -> Dict[str, Any]:
     """Create a new user for a company."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
+        # Check if user with this email already exists in this company
+        existing_user = db.query(CompanyUser).filter(
+            CompanyUser.company_id == company_id,
+            CompanyUser.email == email
+        ).first()
+        
+        if existing_user:
+            raise ValueError(f"User with email {email} already exists in this company")
+        
         user = CompanyUser(
             company_id=company_id,
             email=email,
@@ -169,7 +172,7 @@ async def create_user(company_id: str, email: str, name: str) -> Dict[str, Any]:
 
 async def create_guest_session(company_id: str, ip_address: Optional[str] = None, user_agent: Optional[str] = None) -> Dict[str, Any]:
     """Create a new guest session."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         expires_at = datetime.now() + timedelta(hours=24)  # 24 hour session
         
@@ -197,7 +200,7 @@ async def create_guest_session(company_id: str, ip_address: Optional[str] = None
 
 async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Get user information by ID."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         user = db.query(CompanyUser).filter(CompanyUser.user_id == user_id).first()
         if user:
@@ -215,19 +218,53 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
         db.close()
 
 async def get_guest_session(session_id: str) -> Optional[Dict[str, Any]]:
-    """Get guest session information."""
-    db = next(get_db())
+    """Get guest session by ID."""
+    db = SessionLocal()
     try:
-        session = db.query(GuestSession).filter(GuestSession.session_id == session_id).first()
-        if session is not None and session.expires_at.replace(tzinfo=None) > datetime.now():
-            return {
-                "session_id": session.session_id,
-                "company_id": session.company_id,
-                "expires_at": session.expires_at.isoformat()
-            }
-        return None
-    except SQLAlchemyError:
-        return None
+        session = db.query(GuestSession).filter(
+            GuestSession.session_id == session_id
+        ).first()
+        
+        if not session:
+            return None
+        
+        # Check if session is expired
+        current_time = datetime.now()
+        if session.expires_at.replace(tzinfo=None) <= current_time:
+            return None
+        
+        return {
+            "session_id": session.session_id,
+            "company_id": session.company_id,
+            "expires_at": session.expires_at.isoformat(),
+            "created_at": session.created_at.isoformat(),
+            "ip_address": session.ip_address,
+            "user_agent": session.user_agent
+        }
+    except SQLAlchemyError as e:
+        raise e
+    finally:
+        db.close()
+
+async def mark_guest_converted(session_id: str) -> bool:
+    """Mark a guest session as converted to prevent duplicate conversions."""
+    db = SessionLocal()
+    try:
+        # Update the session to mark it as converted by expiring it
+        result = db.query(GuestSession).filter(
+            GuestSession.session_id == session_id
+        ).update({
+            "expires_at": datetime.now()
+        })
+        
+        if result == 0:
+            return False  # No session found
+        
+        db.commit()
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise e
     finally:
         db.close()
 
@@ -246,7 +283,7 @@ async def save_chat(company_id: str, chat_id: str, title: str, user_id: Optional
         user_id: User ID (for registered users)
         session_id: Session ID (for guest users)
     """
-    db = next(get_db())
+    db = SessionLocal()
     try:
         # Check if chat already exists
         chat = db.query(Chat).filter(Chat.chat_id == chat_id, Chat.company_id == company_id).first()
@@ -269,7 +306,7 @@ async def save_chat(company_id: str, chat_id: str, title: str, user_id: Optional
 
 async def save_message(company_id: str, chat_id: str, role: str, content: str):
     """Save a message for a specific company's chat."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         # Ensure chat exists
         chat = db.query(Chat).filter(Chat.chat_id == chat_id, Chat.company_id == company_id).first()
@@ -300,7 +337,7 @@ async def save_message(company_id: str, chat_id: str, role: str, content: str):
 
 async def fetch_messages(company_id: str, chat_id: str) -> List[Dict[str, Any]]:
     """Fetch all messages for a specific chat in a company."""
-    db = next(get_db())
+    db = SessionLocal()
     messages = []
     try:
         messages = db.query(Message).filter(
@@ -324,7 +361,7 @@ async def fetch_messages(company_id: str, chat_id: str) -> List[Dict[str, Any]]:
 
 async def fetch_company_chats(company_id: str, user_id: Optional[str] = None, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Fetch all chats for a company, optionally filtered by user or session."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         query = db.query(Chat).filter(
             Chat.company_id == company_id,
@@ -377,7 +414,7 @@ async def fetch_company_chats(company_id: str, user_id: Optional[str] = None, se
 
 async def update_chat_title(company_id: str, chat_id: str, new_title: str):
     """Update chat title for a specific company."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         db.execute(
             update(Chat).where(
@@ -393,7 +430,7 @@ async def update_chat_title(company_id: str, chat_id: str, new_title: str):
 
 async def delete_chat(company_id: str, chat_id: str):
     """Delete a chat for a specific company."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         db.execute(
             update(Chat).where(
@@ -409,7 +446,7 @@ async def delete_chat(company_id: str, chat_id: str):
 
 async def delete_all_chats(company_id: str):
     """Delete all chats for a specific company."""
-    db = next(get_db())
+    db = SessionLocal()
     try:
         db.execute(
             update(Chat).where(
@@ -433,7 +470,7 @@ def load_session_history(company_id: str, chat_id: str) -> ChatMessageHistory:
     Returns:
         ChatMessageHistory: Object containing the chat's message history
     """
-    db = next(get_db())
+    db = SessionLocal()
     chat_history = ChatMessageHistory()
     
     try:
@@ -458,3 +495,44 @@ def load_session_history(company_id: str, chat_id: str) -> ChatMessageHistory:
         db.close()
     
     return chat_history
+
+# =============================================================================
+# BACKWARD COMPATIBILITY LAYER (TEMPORARY)
+# =============================================================================
+
+# These functions provide backward compatibility with the old API
+# They use a default company_id for now, will be updated when we add auth to endpoints
+
+DEFAULT_COMPANY_ID = "default-company"
+
+async def fetch_all_chats() -> List[Dict[str, Any]]:
+    """Backward compatibility: Fetch chats for default company."""
+    return await fetch_company_chats(DEFAULT_COMPANY_ID)
+
+async def save_message_old(chat_id: str, role: str, content: str):
+    """Backward compatibility: Save message for default company."""
+    return await save_message(DEFAULT_COMPANY_ID, chat_id, role, content)
+
+async def save_chat_old(chat_id: str, title: str):
+    """Backward compatibility: Save chat for default company."""
+    return await save_chat(DEFAULT_COMPANY_ID, chat_id, title)
+
+async def fetch_messages_old(chat_id: str) -> List[Dict[str, Any]]:
+    """Backward compatibility: Fetch messages for default company."""
+    return await fetch_messages(DEFAULT_COMPANY_ID, chat_id)
+
+async def update_chat_title_old(chat_id: str, new_title: str):
+    """Backward compatibility: Update chat title for default company."""
+    return await update_chat_title(DEFAULT_COMPANY_ID, chat_id, new_title)
+
+async def delete_chat_old(chat_id: str):
+    """Backward compatibility: Delete chat for default company."""
+    return await delete_chat(DEFAULT_COMPANY_ID, chat_id)
+
+async def delete_all_chats_old():
+    """Backward compatibility: Delete all chats for default company."""
+    return await delete_all_chats(DEFAULT_COMPANY_ID)
+
+def load_session_history_old(chat_id: str) -> ChatMessageHistory:
+    """Backward compatibility: Load session history for default company."""
+    return load_session_history(DEFAULT_COMPANY_ID, chat_id)
