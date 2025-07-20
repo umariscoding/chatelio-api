@@ -38,7 +38,7 @@ class ChatMessage(BaseModel):
     message: str
     chat_id: Optional[str] = None
     chat_title: Optional[str] = "New Chat"
-    model: str = "Gemini"
+    model: str = "OpenAI"
 
 class ChatTitleUpdate(BaseModel):
     title: str

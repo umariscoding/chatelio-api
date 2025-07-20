@@ -20,8 +20,13 @@ class Company(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    slug = Column(String, unique=True, nullable=True)  # URL-friendly company identifier
     plan = Column(String, default='free')  # free, basic, pro, enterprise
     status = Column(String, default='active')  # active, suspended, deleted
+    is_published = Column(Boolean, default=False)  # whether chatbot is published
+    published_at = Column(DateTime, nullable=True)  # when chatbot was published
+    chatbot_title = Column(String, nullable=True)  # custom chatbot title
+    chatbot_description = Column(String, nullable=True)  # custom chatbot description
     api_keys = Column(JSON, default=dict)  # store encrypted API keys
     settings = Column(JSON, default=dict)  # chatbot customization settings
     created_at = Column(DateTime, default=func.now())
@@ -40,6 +45,7 @@ class CompanyUser(Base):
     user_id = Column(String, unique=True, nullable=False, default=generate_id)
     company_id = Column(String, ForeignKey("companies.company_id"), nullable=False)
     email = Column(String, nullable=True)
+    password_hash = Column(String, nullable=True)  # Hashed password for registered users
     name = Column(String, nullable=True)
     is_anonymous = Column(Boolean, default=False)
     user_metadata = Column(JSON, default=dict)  # store additional user data
@@ -149,10 +155,30 @@ class CompanyLoginModel(BaseModel):
 
 class UserRegisterModel(BaseModel):
     email: str
+    password: str
     name: str
+    company_id: str
+
+class UserLoginModel(BaseModel):
+    email: str
+    password: str
     company_id: str
 
 class GuestSessionModel(BaseModel):
     company_id: str
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
+
+class CompanySlugModel(BaseModel):
+    slug: str
+
+class PublishChatbotModel(BaseModel):
+    is_published: bool
+    chatbot_title: Optional[str] = None
+    chatbot_description: Optional[str] = None
+
+
+class PublicChatMessage(BaseModel):
+    message: str
+    chat_id: Optional[str] = None
+    model: str = "OpenAI"

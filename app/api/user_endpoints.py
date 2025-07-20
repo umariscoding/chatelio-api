@@ -4,15 +4,15 @@ User management endpoints for the hybrid model (guest sessions + registered user
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from typing import Dict, Any, Optional
-from app.models.models import UserRegisterModel, GuestSessionModel
+from app.models.models import UserRegisterModel, UserLoginModel, GuestSessionModel
 from app.auth import create_user_tokens, create_guest_tokens
 from app.auth.dependencies import get_current_user, get_current_user_or_guest, UserContext
 from app.db.database import (
-    create_company, get_company_by_id, create_user, create_guest_session, 
-    get_user_by_id, get_guest_session, mark_guest_converted
+    create_company, get_company_by_id, create_user, authenticate_user,
+    create_guest_session, get_user_by_id, get_guest_session
 )
 
-router = APIRouter(prefix="/users", tags=["user-management"])
+router = APIRouter(prefix="/users", tags=["user_management"])
 
 @router.post("/guest/create")
 async def create_guest_session_endpoint(
@@ -63,6 +63,9 @@ async def create_guest_session_endpoint(
             "session": {
                 "session_id": session["session_id"],
                 "company_id": session["company_id"],
+                "ip_address": session.get("ip_address"),
+                "user_agent": session.get("user_agent"),
+                "created_at": session.get("created_at"),
                 "expires_at": session["expires_at"]
             },
             "tokens": tokens
@@ -103,6 +106,7 @@ async def register_user(user_data: UserRegisterModel) -> Dict[str, Any]:
         user = await create_user(
             company_id=user_data.company_id,
             email=user_data.email,
+            password=user_data.password,
             name=user_data.name
         )
         
@@ -120,7 +124,8 @@ async def register_user(user_data: UserRegisterModel) -> Dict[str, Any]:
                 "company_id": user["company_id"],
                 "email": user["email"],
                 "name": user["name"],
-                "is_anonymous": user["is_anonymous"]
+                "is_anonymous": user["is_anonymous"],
+                "created_at": user.get("created_at")
             },
             "tokens": tokens
         }
@@ -145,102 +150,53 @@ async def register_user(user_data: UserRegisterModel) -> Dict[str, Any]:
             detail=f"Failed to register user: {str(e)}"
         )
 
-@router.post("/convert-guest-to-user")
-async def convert_guest_to_user(
-    user_data: UserRegisterModel,
-    current_user: UserContext = Depends(get_current_user_or_guest)
-) -> Dict[str, Any]:
+@router.post("/login")
+async def login_user(user_data: UserLoginModel) -> Dict[str, Any]:
     """
-    Convert a guest session to a registered user account.
-    This is for the progressive enhancement flow where guests decide to save their chat.
+    Authenticate a user and return tokens.
     
     Args:
-        user_data: User registration information
-        current_user: Current guest user context
+        user_data: User login credentials
         
     Returns:
-        Dict containing new user info and tokens
+        Dict containing user info and authentication tokens
         
     Raises:
-        HTTPException: If user is not a guest or conversion fails
+        HTTPException: If authentication fails
     """
     try:
-        if not current_user.is_guest():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only guest users can be converted to registered users"
-            )
-        
-        # Verify company matches
-        if current_user.company_id != user_data.company_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Company ID mismatch"
-            )
-        
-        # Check if guest session is still valid (not already converted)
-        guest_session = await get_guest_session(current_user.user_id)
-        if not guest_session:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Guest session has expired or already been converted"
-            )
-        
-        # Create registered user account
-        user = await create_user(
+        # Authenticate user
+        user = await authenticate_user(
             company_id=user_data.company_id,
             email=user_data.email,
-            name=user_data.name
+            password=user_data.password
         )
         
-        # Mark the guest session as converted to prevent duplicate conversions
-        await mark_guest_converted(current_user.user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
         
-        # Generate new tokens for the registered user
+        # Generate authentication tokens
         tokens = create_user_tokens(
             user_id=user["user_id"],
             company_id=user["company_id"],
             email=user["email"]
         )
         
-        # Note: In a production system, you might want to:
-        # 1. Transfer chat history from guest session to user account
-        # 2. Update existing chats to link to the new user account
-        
         return {
-            "message": "Guest converted to registered user successfully",
-            "user": {
-                "user_id": user["user_id"],
-                "company_id": user["company_id"],
-                "email": user["email"],
-                "name": user["name"],
-                "is_anonymous": user["is_anonymous"]
-            },
-            "tokens": tokens,
-            "conversion": {
-                "from_session_id": current_user.user_id,
-                "to_user_id": user["user_id"]
-            }
+            "message": "Login successful",
+            "user": user,
+            "tokens": tokens
         }
         
-    except ValueError as e:
-        # Handle duplicate email error from create_user
-        if "already exists" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User with this email already exists in this company"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Guest conversion failed: {str(e)}"
+            detail=f"Login failed: {str(e)}"
         )
 
 @router.get("/profile")
@@ -265,12 +221,15 @@ async def get_user_profile(current_user: UserContext = Depends(get_current_user_
                 )
             
             return {
-                "profile": {
+                "session": {
                     "session_id": session["session_id"],
                     "company_id": session["company_id"],
-                    "user_type": "guest",
+                    "ip_address": session.get("ip_address"),
+                    "user_agent": session.get("user_agent"),
+                    "created_at": session.get("created_at"),
                     "expires_at": session["expires_at"]
-                }
+                },
+                "user_type": "guest"
             }
         else:
             # Get registered user info
@@ -282,14 +241,15 @@ async def get_user_profile(current_user: UserContext = Depends(get_current_user_
                 )
             
             return {
-                "profile": {
+                "user": {
                     "user_id": user["user_id"],
                     "company_id": user["company_id"],
                     "email": user["email"],
                     "name": user["name"],
-                    "user_type": "user",
-                    "is_anonymous": user["is_anonymous"]
-                }
+                    "is_anonymous": user["is_anonymous"],
+                    "created_at": user.get("created_at")
+                },
+                "user_type": "user"
             }
         
     except HTTPException:
@@ -330,17 +290,28 @@ async def check_session_validity(current_user: UserContext = Depends(get_current
         )
 
 @router.get("/company/{company_id}/info")
-async def get_company_info(company_id: str) -> Dict[str, Any]:
+async def get_company_info(company_id: str, current_user: UserContext = Depends(get_current_user_or_guest)) -> Dict[str, Any]:
     """
-    Get public company information (for guest users to see company details).
+    Get company information - users can only access their own company's info.
     
     Args:
         company_id: Company identifier
+        current_user: Current authenticated user
         
     Returns:
-        Dict containing public company information
+        Dict containing company information
+        
+    Raises:
+        HTTPException: If user tries to access other company's info
     """
     try:
+        # Security check: Users can only access their own company's information
+        if current_user.company_id != company_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only access your own company's information"
+            )
+        
         company = await get_company_by_id(company_id)
         if not company:
             raise HTTPException(
@@ -348,7 +319,7 @@ async def get_company_info(company_id: str) -> Dict[str, Any]:
                 detail="Company not found"
             )
         
-        # Return only public information
+        # Return company information (user has access to their own company)
         return {
             "company": {
                 "company_id": company["company_id"],
@@ -376,5 +347,5 @@ async def health_check() -> Dict[str, str]:
     """
     return {
         "status": "healthy",
-        "service": "user-management"
+        "service": "user_management"
     } 

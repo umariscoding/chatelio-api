@@ -52,21 +52,37 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user_id = user_info.get("user_id")
-    company_id = user_info.get("company_id")
     user_type = user_info.get("user_type")
     email = user_info.get("email")
     
-    if not user_id or not user_type:
+    if not user_type:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # For company tokens, company_id is the same as user_id
+    # Handle different token types
     if user_type == "company":
-        company_id = user_id
+        # For company tokens, the ID is in company_id field
+        company_id = user_info.get("company_id")
+        user_id = company_id  # Use company_id as user_id for compatibility
+        if not company_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    else:
+        # For user/guest tokens, the ID is in user_id field
+        user_id = user_info.get("user_id")
+        company_id = user_info.get("company_id")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     
     # Validate user exists in database
     if user_type == "company":

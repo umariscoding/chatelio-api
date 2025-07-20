@@ -223,7 +223,7 @@ def clear_company_knowledge_base(company_id: str):
         print(f"Error clearing knowledge base for company {company_id}: {str(e)}")
         return False
 
-def get_company_rag_chain(company_id: str, llm_model: str = "Gemini") -> RunnableWithMessageHistory:
+def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> RunnableWithMessageHistory:
     """
     Get or create a company-specific RAG chain.
     
@@ -297,7 +297,7 @@ def get_company_rag_chain(company_id: str, llm_model: str = "Gemini") -> Runnabl
     
     return conversational_rag_chain
 
-async def stream_company_response(company_id: str, query: str, chat_id: str, llm_model: str = "Gemini") -> AsyncGenerator[str, None]:
+async def stream_company_response(company_id: str, query: str, chat_id: str, llm_model: str = "OpenAI") -> AsyncGenerator[str, None]:
     """
     Stream response from company-specific RAG chain.
     
@@ -311,21 +311,52 @@ async def stream_company_response(company_id: str, query: str, chat_id: str, llm
         str: Response chunks
     """
     try:
-        # Get company-specific RAG chain
-        rag_chain = get_company_rag_chain(company_id, llm_model)
+        # Check if OpenAI API key is available
+        if not openai_api_key or openai_api_key == "your-openai-api-key-here":
+            yield "Error: OpenAI API key not configured. Please set a valid OPENAI_API_KEY in app/.env file."
+            return
+            
+        # Check if Pinecone API key is available  
+        if not pinecone_api_key or pinecone_api_key == "your-pinecone-api-key-here":
+            yield "Error: Pinecone API key not configured. Please set a valid PINECONE_API_KEY in app/.env file."
+            return
+            
+        # Get company-specific RAG chain with timeout
+        try:
+            rag_chain = get_company_rag_chain(company_id, llm_model)
+        except Exception as chain_error:
+            yield f"Error: Failed to initialize chat system. Please ensure knowledge base is set up. Details: {str(chain_error)}"
+            return
         
-        # Stream response
-        resp = rag_chain.stream(
-            {"input": query},
-            config={"configurable": {"session_id": chat_id}},
-        )
-        
-        for chunk in resp:
-            if 'answer' in chunk:
-                yield chunk['answer']
+        # Stream response with timeout handling
+        try:
+            resp = rag_chain.stream(
+                {"input": query},
+                config={"configurable": {"session_id": chat_id}},
+            )
+            
+            response_started = False
+            for chunk in resp:
+                if 'answer' in chunk:
+                    response_started = True
+                    yield chunk['answer']
+            
+            # If no response was generated
+            if not response_started:
+                yield "I apologize, but I couldn't generate a response. Please try again or contact support if the issue persists."
+                
+        except Exception as stream_error:
+            yield f"Error: Failed to generate response. Details: {str(stream_error)}"
+            return
     
     except Exception as e:
-        yield f"Error: {str(e)}"
+        error_msg = str(e)
+        if "api key" in error_msg.lower() or "unauthorized" in error_msg.lower():
+            yield "Error: Invalid or missing OpenAI API key. Please check your API key configuration."
+        elif "pinecone" in error_msg.lower():
+            yield "Error: Pinecone connection failed. Please check your Pinecone API key configuration."
+        else:
+            yield f"Error: {error_msg}"
 
 # Legacy compatibility functions (updated to use company context)
 def create_embeddings_and_store_text(doc_chunks: List[str], company_id: str = "default") -> PineconeVectorStore:
@@ -340,13 +371,13 @@ def get_pinecone_vectorstore(company_id: str = "default") -> PineconeVectorStore
     """
     return get_company_vector_store(company_id)
 
-def get_rag_chain(llm_model: str = "Gemini", company_id: str = "default") -> RunnableWithMessageHistory:
+def get_rag_chain(llm_model: str = "OpenAI", company_id: str = "default") -> RunnableWithMessageHistory:
     """
     Legacy function updated for company context.
     """
     return get_company_rag_chain(company_id, llm_model)
 
-def query_pinecone(db: PineconeVectorStore, llm_model: str = "Gemini", chat_id: str = 'abc123', company_id: str = "default"):
+def query_pinecone(db: PineconeVectorStore, llm_model: str = "OpenAI", chat_id: str = 'abc123', company_id: str = "default"):
     """
     Legacy function updated for company context.
     """

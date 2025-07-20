@@ -65,7 +65,8 @@ def verify_token(token: str) -> Optional[Dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except JWTError:
+    except (JWTError, ValueError, TypeError, Exception):
+        # Handles malformed tokens like "invalid_token_12345" that cause DecodeError: Not enough segments        # Catch all possible exceptions from malformed tokens
         return None
 
 def create_company_tokens(company_id: str, email: str) -> Dict[str, str]:
@@ -163,12 +164,23 @@ def refresh_access_token(refresh_token: str) -> Optional[str]:
         return None
     
     # Create new access token with same claims (except exp and type)
-    new_token_data = {
-        "sub": payload.get("sub"),
-        "company_id": payload.get("company_id"),
-        "email": payload.get("email"),
-        "user_type": payload.get("user_type")
-    }
+    user_type = payload.get("user_type")
+    
+    if user_type == "company":
+        # For company tokens, sub contains the company_id
+        new_token_data = {
+            "sub": payload.get("sub"),
+            "email": payload.get("email"),
+            "user_type": user_type
+        }
+    else:
+        # For user/guest tokens, preserve both sub and company_id
+        new_token_data = {
+            "sub": payload.get("sub"),
+            "company_id": payload.get("company_id"),
+            "email": payload.get("email"),
+            "user_type": user_type
+        }
     
     return create_access_token(new_token_data)
 
@@ -191,7 +203,8 @@ def decode_token(token: str) -> Optional[Dict]:
             return None
             
         return payload
-    except JWTError:
+    except (JWTError, ValueError, TypeError, Exception):
+        # Handles malformed tokens like "invalid_token_12345" that cause DecodeError: Not enough segments        # Catch all possible exceptions from malformed or invalid tokens
         return None
 
 def get_current_user_info(token: str) -> Optional[Dict]:
@@ -208,12 +221,26 @@ def get_current_user_info(token: str) -> Optional[Dict]:
     if not payload:
         return None
     
-    return {
-        "user_id": payload.get("sub"),
-        "company_id": payload.get("company_id"),
-        "email": payload.get("email"),
-        "user_type": payload.get("user_type")
-    }
+    user_type = payload.get("user_type")
+    
+    if user_type == "company":
+        # For company tokens, sub contains the company_id
+        return {
+            "company_id": payload.get("sub"),
+            "email": payload.get("email"),
+            "user_type": user_type
+        }
+    elif user_type in ["user", "guest"]:
+        # For user/guest tokens, sub contains user_id/session_id
+        return {
+            "user_id": payload.get("sub"),
+            "company_id": payload.get("company_id"),
+            "email": payload.get("email"),
+            "user_type": user_type
+        }
+    else:
+        # Unknown user type
+        return None
 
 # Token validation helpers
 def is_company_token(token: str) -> bool:

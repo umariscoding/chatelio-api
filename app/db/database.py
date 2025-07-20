@@ -74,6 +74,11 @@ async def create_company(name: str, email: str, password: str) -> Dict[str, Any]
             "email": company.email,
             "plan": company.plan,
             "status": company.status,
+            "slug": company.slug,
+            "is_published": company.is_published,
+            "published_at": company.published_at.isoformat() if company.published_at else None,
+            "chatbot_title": company.chatbot_title,
+            "chatbot_description": company.chatbot_description,
             "created_at": company.created_at.isoformat()
         }
     except SQLAlchemyError as e:
@@ -102,7 +107,13 @@ async def authenticate_company(email: str, password: str) -> Optional[Dict[str, 
                 "name": company.name,
                 "email": company.email,
                 "plan": company.plan,
-                "status": company.status
+                "status": company.status,
+                "slug": company.slug,
+                "is_published": company.is_published,
+                "published_at": company.published_at.isoformat() if company.published_at else None,
+                "chatbot_title": company.chatbot_title,
+                "chatbot_description": company.chatbot_description,
+                "created_at": company.created_at.isoformat()
             }
         return None
     except SQLAlchemyError:
@@ -120,12 +131,151 @@ async def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
                 "company_id": company.company_id,
                 "name": company.name,
                 "email": company.email,
+                "slug": company.slug,
                 "plan": company.plan,
                 "status": company.status,
-                "settings": company.settings
+                "is_published": company.is_published,
+                "published_at": company.published_at.isoformat() if company.published_at is not None else None,
+                "chatbot_title": company.chatbot_title,
+                "chatbot_description": company.chatbot_description,
+                "settings": company.settings,
+                "created_at": company.created_at.isoformat()
             }
         return None
     except SQLAlchemyError:
+        return None
+    finally:
+        db.close()
+
+async def get_company_by_slug(slug: str) -> Optional[Dict[str, Any]]:
+    """
+    Get company by slug.
+    
+    Args:
+        slug: Company slug
+        
+    Returns:
+        dict: Company information if found, None otherwise
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.slug == slug).first()
+        if company:
+            return {
+                "company_id": company.company_id,
+                "name": company.name,
+                "email": company.email,
+                "slug": company.slug,
+                "plan": company.plan,
+                "status": company.status,
+                "is_published": company.is_published,
+                "published_at": company.published_at.isoformat() if company.published_at is not None else None,
+                "chatbot_title": company.chatbot_title,
+                "chatbot_description": company.chatbot_description,
+                "created_at": company.created_at.isoformat()
+            }
+        return None
+    finally:
+        db.close()
+
+async def update_company_slug(company_id: str, slug: str) -> bool:
+    """
+    Update company slug.
+    
+    Args:
+        company_id: Company ID
+        slug: New slug
+        
+    Returns:
+        bool: True if updated successfully, False otherwise
+    """
+    db = SessionLocal()
+    try:
+        # Check if slug already exists
+        existing = db.query(Company).filter(Company.slug == slug, Company.company_id != company_id).first()
+        if existing:
+            raise ValueError("Slug already exists")
+        
+        # Update company slug
+        result = db.query(Company).filter(Company.company_id == company_id).update({
+            Company.slug: slug,
+            Company.updated_at: datetime.now()
+        })
+        db.commit()
+        return result > 0
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
+
+async def publish_chatbot(company_id: str, is_published: bool, chatbot_title: Optional[str] = None, chatbot_description: Optional[str] = None) -> bool:
+    """
+    Publish or unpublish a company's chatbot.
+    
+    Args:
+        company_id: Company ID
+        is_published: Whether to publish or unpublish
+        chatbot_title: Custom chatbot title
+        chatbot_description: Custom chatbot description
+        
+    Returns:
+        bool: True if updated successfully, False otherwise
+    """
+    db = SessionLocal()
+    try:
+        update_data = {
+            Company.is_published: is_published,
+            Company.updated_at: datetime.now()
+        }
+        
+        if is_published:
+            update_data[Company.published_at] = datetime.now()
+        else:
+            update_data[Company.published_at] = None
+            
+        if chatbot_title is not None:
+            update_data[Company.chatbot_title] = chatbot_title
+            
+        if chatbot_description is not None:
+            update_data[Company.chatbot_description] = chatbot_description
+        
+        result = db.query(Company).filter(Company.company_id == company_id).update(update_data)
+        db.commit()
+        return result > 0
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
+
+async def get_published_company_info(slug: str) -> Optional[Dict[str, Any]]:
+    """
+    Get published company information by slug.
+    
+    Args:
+        slug: Company slug
+        
+    Returns:
+        dict: Published company information if found and published, None otherwise
+    """
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(
+            Company.slug == slug,
+            Company.is_published.is_(True),
+            Company.status == 'active'
+        ).first()
+        
+        if company:
+            return {
+                "company_id": company.company_id,
+                "name": company.name,
+                "slug": company.slug,
+                "chatbot_title": company.chatbot_title or company.name,
+                "chatbot_description": company.chatbot_description or f"Chat with {company.name}",
+                "published_at": company.published_at.isoformat() if company.published_at is not None else None
+            }
         return None
     finally:
         db.close()
@@ -134,8 +284,8 @@ async def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
 # USER MANAGEMENT
 # =============================================================================
 
-async def create_user(company_id: str, email: str, name: str) -> Dict[str, Any]:
-    """Create a new user for a company."""
+async def create_user(company_id: str, email: str, password: str, name: str) -> Dict[str, Any]:
+    """Create a new user for a company with password."""
     db = SessionLocal()
     try:
         # Check if user with this email already exists in this company
@@ -150,6 +300,7 @@ async def create_user(company_id: str, email: str, name: str) -> Dict[str, Any]:
         user = CompanyUser(
             company_id=company_id,
             email=email,
+            password_hash=get_password_hash(password),
             name=name
         )
         db.add(user)
@@ -167,6 +318,30 @@ async def create_user(company_id: str, email: str, name: str) -> Dict[str, Any]:
     except SQLAlchemyError as e:
         db.rollback()
         raise e
+    finally:
+        db.close()
+
+async def authenticate_user(company_id: str, email: str, password: str) -> Optional[Dict[str, Any]]:
+    """Authenticate a user and return user info."""
+    db = SessionLocal()
+    try:
+        user = db.query(CompanyUser).filter(
+            CompanyUser.company_id == company_id,
+            CompanyUser.email == email
+        ).first()
+        
+        if user and user.password_hash and verify_password(plain_password=password, hashed_password=str(user.password_hash)):
+            return {
+                "user_id": user.user_id,
+                "company_id": user.company_id,
+                "email": user.email,
+                "name": user.name,
+                "is_anonymous": user.is_anonymous,
+                "created_at": user.created_at.isoformat()
+            }
+        return None
+    except SQLAlchemyError:
+        return None
     finally:
         db.close()
 
@@ -189,6 +364,8 @@ async def create_guest_session(company_id: str, ip_address: Optional[str] = None
         return {
             "session_id": session.session_id,
             "company_id": session.company_id,
+            "ip_address": session.ip_address,
+            "user_agent": session.user_agent,
             "expires_at": session.expires_at.isoformat(),
             "created_at": session.created_at.isoformat()
         }
@@ -209,7 +386,8 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                 "company_id": user.company_id,
                 "email": user.email,
                 "name": user.name,
-                "is_anonymous": user.is_anonymous
+                "is_anonymous": user.is_anonymous,
+                "created_at": user.created_at.isoformat()
             }
         return None
     except SQLAlchemyError:
@@ -246,27 +424,7 @@ async def get_guest_session(session_id: str) -> Optional[Dict[str, Any]]:
     finally:
         db.close()
 
-async def mark_guest_converted(session_id: str) -> bool:
-    """Mark a guest session as converted to prevent duplicate conversions."""
-    db = SessionLocal()
-    try:
-        # Update the session to mark it as converted by expiring it
-        result = db.query(GuestSession).filter(
-            GuestSession.session_id == session_id
-        ).update({
-            "expires_at": datetime.now()
-        })
-        
-        if result == 0:
-            return False  # No session found
-        
-        db.commit()
-        return True
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise e
-    finally:
-        db.close()
+
 
 # =============================================================================
 # CHAT MANAGEMENT (COMPANY-SCOPED)
