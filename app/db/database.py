@@ -424,6 +424,30 @@ async def get_guest_session(session_id: str) -> Optional[Dict[str, Any]]:
     finally:
         db.close()
 
+async def get_users_by_company_id(company_id: str) -> List[Dict[str, Any]]:
+    """Get all users for a specific company."""
+    db = SessionLocal()
+    try:
+        users = db.query(CompanyUser).filter(
+            CompanyUser.company_id == company_id
+        ).order_by(CompanyUser.created_at.desc()).all()
+        
+        return [
+            {
+                "user_id": user.user_id,
+                "company_id": user.company_id,
+                "email": user.email,
+                "name": user.name,
+                "is_anonymous": user.is_anonymous,
+                "created_at": user.created_at.isoformat()
+            }
+            for user in users
+        ]
+    except SQLAlchemyError as e:
+        raise e
+    finally:
+        db.close()
+
 
 
 # =============================================================================

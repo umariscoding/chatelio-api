@@ -12,7 +12,8 @@ from app.services.langchain_service import (
     setup_company_knowledge_base,
     get_company_vector_store,
     process_company_document,
-    clear_company_knowledge_base
+    clear_company_knowledge_base,
+    clear_company_cache
 )
 from app.services.fetchdata_service import get_umar_azhar_content
 from app.services.document_service import split_text_for_txt
@@ -548,6 +549,25 @@ async def clear_knowledge_base(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to clear knowledge base: {str(e)}"
+        )
+
+@router.post("/clear-rag-cache")
+async def clear_rag_cache(
+    user: UserContext = Depends(get_current_company)
+):
+    """
+    Clear the RAG chain cache for the current company.
+    This will force the system to rebuild the RAG chain with updated prompts.
+    Only accessible by company users.
+    """
+    try:
+        clear_company_cache(user.company_id)
+        return {"message": "RAG cache cleared successfully. New prompts will take effect on next chat message."}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear RAG cache: {str(e)}"
         )
 
 # Helper functions

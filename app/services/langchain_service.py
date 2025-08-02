@@ -15,7 +15,10 @@ from typing import AsyncGenerator, List, Dict, Optional
 from app.core.config import GOOGLE_API_KEY, MODEL_NAME
 import asyncio
 from app.services.prompts import contextualize_q_system_prompt, qa_system_prompt
-from app.db.database import load_session_history
+from app.db.database import load_session_history, SessionLocal
+from app.services.document_service import split_text_for_txt
+from app.models.models import Document
+from sqlalchemy import update
 
 load_dotenv(dotenv_path='app/.env')
 
@@ -168,7 +171,6 @@ def process_company_document(company_id: str, document_content: str, doc_id: Opt
     """
     try:
         # Split document into chunks
-        from app.services.document_service import split_text_for_txt
         doc_chunks = split_text_for_txt(document_content)
         
         # Get or create company vector store
@@ -182,9 +184,18 @@ def process_company_document(company_id: str, document_content: str, doc_id: Opt
         
         # Update document status if doc_id is provided
         if doc_id:
-            import asyncio
-            from app.db.database import update_document_embeddings_status
-            asyncio.create_task(update_document_embeddings_status(doc_id, 'completed'))
+            db = SessionLocal()
+            try:
+                db.execute(
+                    update(Document).where(
+                        Document.doc_id == doc_id
+                    ).values(embeddings_status='completed')
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+            finally:
+                db.close()
         
         return True
         
@@ -193,9 +204,21 @@ def process_company_document(company_id: str, document_content: str, doc_id: Opt
         
         # Update document status to failed if doc_id is provided
         if doc_id:
-            import asyncio
-            from app.db.database import update_document_embeddings_status
-            asyncio.create_task(update_document_embeddings_status(doc_id, 'failed'))
+            try:
+                db = SessionLocal()
+                try:
+                    db.execute(
+                        update(Document).where(
+                            Document.doc_id == doc_id
+                        ).values(embeddings_status='failed')
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                finally:
+                    db.close()
+            except Exception:
+                pass
         
         return False
 

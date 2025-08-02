@@ -36,18 +36,23 @@ async def subdomain_middleware(request: Request, call_next):
     - www.mysite.com → subdomain="www", is_subdomain_request=False  
     - mysite.com → subdomain=None, is_subdomain_request=False
     - localhost:8000 → subdomain=None, is_subdomain_request=False
+    - imrankhan.localhost:3001 → subdomain="imrankhan", is_subdomain_request=True
     """
     host = request.headers.get("host", "").lower()
+    subdomain = None
     
     # Extract subdomain
     if "." in host:
         parts = host.split(".")
-        if len(parts) >= 3:  # subdomain.domain.tld
+        
+        # Handle different domain formats
+        if len(parts) >= 3:  # Production: subdomain.domain.tld
             subdomain = parts[0].split(":")[0]  # Remove port if present
-        else:
-            subdomain = None
-    else:
-        subdomain = None
+        elif len(parts) == 2:  # Development: subdomain.localhost:port or subdomain.domain
+            # Check if this is a localhost development scenario
+            domain_part = parts[1].split(":")[0]  # Remove port from domain part
+            if domain_part == "localhost" or not "." in parts[1]:
+                subdomain = parts[0].split(":")[0]  # Remove port if present
     
     # Determine if this is a chatbot subdomain request
     is_subdomain_request = (
@@ -62,8 +67,11 @@ async def subdomain_middleware(request: Request, call_next):
     request.state.original_host = host
     
     # Log subdomain detection for debugging
+    logger.info(f"Host: {host} → Subdomain: {subdomain}, Is subdomain request: {is_subdomain_request}")
     if is_subdomain_request:
-        logger.info(f"Detected chatbot subdomain: {subdomain} from host: {host}")
+        logger.info(f"✅ Detected chatbot subdomain: {subdomain} from host: {host}")
+    else:
+        logger.info(f"ℹ️  No valid subdomain detected from host: {host}")
     
     response = await call_next(request)
     return response

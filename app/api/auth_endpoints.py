@@ -14,7 +14,8 @@ from app.auth import (
 from app.auth.dependencies import get_current_company, UserContext
 from app.db.database import (
     create_company, authenticate_company, get_company_by_id,
-    update_company_slug, publish_chatbot, get_company_by_slug
+    update_company_slug, publish_chatbot, get_company_by_slug,
+    get_users_by_company_id
 )
 from app.core.config import get_chatbot_url
 
@@ -434,6 +435,47 @@ async def get_chatbot_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get chatbot status: {str(e)}"
+        )
+
+@router.get("/company/users")
+async def get_company_users(current_company: UserContext = Depends(get_current_company)) -> Dict[str, Any]:
+    """
+    Get all users for the current company (company admin only).
+    
+    Args:
+        current_company: Current authenticated company admin
+        
+    Returns:
+        Dict containing list of company users
+        
+    Raises:
+        HTTPException: If company not found
+    """
+    try:
+        # Verify company exists
+        company = await get_company_by_id(current_company.company_id)
+        if not company:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Company not found"
+            )
+        
+        # Get all users for the company
+        users = await get_users_by_company_id(current_company.company_id)
+        
+        return {
+            "company_id": current_company.company_id,
+            "company_name": company["name"],
+            "users": users,
+            "total_users": len(users)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get company users: {str(e)}"
         )
 
 # Health check endpoint
