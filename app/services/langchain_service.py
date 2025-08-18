@@ -136,8 +136,11 @@ def get_company_vector_store(company_id: str) -> PineconeVectorStore:
     embedding_function = OpenAIEmbeddings()
     
     # Create vector store connection with company-specific namespace
+    # Use explicit index reference for consistent connections
+    pinecone_index = pc.Index(BASE_INDEX_NAME)
+    
     vector_store = PineconeVectorStore(
-        index_name=BASE_INDEX_NAME,
+        index=pinecone_index,
         embedding=embedding_function,
         namespace=namespace
     )
@@ -267,8 +270,18 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
     if llm_model in _company_rag_chains[company_id]:
         return _company_rag_chains[company_id][llm_model]
     
-    # Get company-specific vector store
-    vector_store = get_company_vector_store(company_id)
+    # Create fresh vector store for reliable connections
+    ensure_base_index_exists()
+    namespace = get_company_namespace(company_id)
+    embedding_function = OpenAIEmbeddings()
+    pinecone_index = pc.Index(BASE_INDEX_NAME)
+    
+    vector_store = PineconeVectorStore(
+        index=pinecone_index,
+        embedding=embedding_function,
+        namespace=namespace
+    )
+    
     retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
     
     # Create LLM

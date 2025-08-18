@@ -125,7 +125,8 @@ async def send_message(
                         llm_model=message_data.model
                     ):
                         response_buffer.write(chunk)
-                        yield f"data: {{'content': '{chunk.replace(chr(10), ' ').replace(chr(13), ' ')}', 'type': 'chunk'}}\n\n"
+                        clean_chunk = chunk.replace(chr(10), ' ').replace(chr(13), ' ')
+                        yield f"data: {{'content': '{clean_chunk}', 'type': 'chunk'}}\n\n"
                     
                     yield f"data: {{'type': 'end'}}\n\n"
                     
@@ -577,21 +578,30 @@ async def ensure_company_knowledge_base(company_id: str):
     If not exists, create it with dummy data.
     """
     try:
-        # Try to get existing vector store
-        vector_store = get_company_vector_store(company_id)
+        # Check Pinecone index stats directly
+        from app.services.langchain_service import pc, BASE_INDEX_NAME, get_company_namespace
         
-        # Test if vector store has any data by attempting a simple search
-        retriever = vector_store.as_retriever(search_kwargs={"k": 1})
-        docs = retriever.invoke("test query")
+        namespace = get_company_namespace(company_id)
+        index = pc.Index(BASE_INDEX_NAME)
+        stats = index.describe_index_stats()
         
-        # If no documents found, set up knowledge base
-        if not docs:
-            content = get_umar_azhar_content()
-            doc_chunks = split_text_for_txt(content)
-            setup_company_knowledge_base(company_id, doc_chunks)
-            
-    except Exception as e:
-        # If any error occurs, set up knowledge base
+        # Check if company namespace exists and has vectors
+        has_vectors = False
+        if stats.namespaces and namespace in stats.namespaces:
+            vector_count = stats.namespaces[namespace].vector_count
+            has_vectors = vector_count > 0
+        
+        if has_vectors:
+            # Clear any stale cache to ensure fresh connections
+            from app.services.langchain_service import clear_company_cache
+            clear_company_cache(company_id)
+            return
+        
+        # No documents found - set up with dummy data
         content = get_umar_azhar_content()
         doc_chunks = split_text_for_txt(content)
-        setup_company_knowledge_base(company_id, doc_chunks) 
+        setup_company_knowledge_base(company_id, doc_chunks)
+            
+    except Exception as e:
+        # If any error occurs, preserve existing content
+        return 
