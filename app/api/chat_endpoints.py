@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from io import StringIO
 import uuid
+import json
 
 from app.auth.dependencies import get_current_user, get_current_company, UserContext
 from app.services.langchain_service import (
@@ -33,6 +34,10 @@ from app.db.database import (
 )
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+def safe_json_dumps(data):
+    """Safely serialize data to JSON with proper escaping"""
+    return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
 
 # Pydantic models
 class ChatMessage(BaseModel):
@@ -117,7 +122,9 @@ async def send_message(
                 # Add chat_id to response headers
                 async def generate_response():
                     try:
-                        yield f"data: {{'chat_id': '{chat_id}', 'type': 'start'}}\n\n"
+                        # Send start message with proper JSON
+                        start_data = {"chat_id": chat_id, "type": "start"}
+                        yield f"data: {safe_json_dumps(start_data)}\n\n"
                         
                         async for chunk in stream_company_response(
                             company_id=user.company_id,
@@ -126,16 +133,21 @@ async def send_message(
                             llm_model=message_data.model
                         ):
                             response_buffer.write(chunk)
+                            # Clean chunk and ensure proper JSON escaping
                             clean_chunk = chunk.replace(chr(10), ' ').replace(chr(13), ' ')
-                            yield f"data: {{'content': '{clean_chunk}', 'type': 'chunk'}}\n\n"
+                            chunk_data = {"content": clean_chunk, "type": "chunk"}
+                            yield f"data: {safe_json_dumps(chunk_data)}\n\n"
                         
-                        yield f"data: {{'type': 'end'}}\n\n"
+                        # Send end message with proper JSON
+                        end_data = {"type": "end"}
+                        yield f"data: {safe_json_dumps(end_data)}\n\n"
                         
                     except Exception as stream_error:
                         # Handle streaming errors gracefully
                         error_msg = str(stream_error)
                         if "LocalProtocolError" not in error_msg and "Can't send data" not in error_msg:
-                            yield f"data: {{'error': '{error_msg}', 'type': 'error'}}\n\n"
+                            error_data = {"error": error_msg, "type": "error"}
+                            yield f"data: {safe_json_dumps(error_data)}\n\n"
                         # For protocol errors, just log and continue - response was likely sent
                         
                     finally:
@@ -159,7 +171,8 @@ async def send_message(
                 # Handle any outer exceptions
                 error_msg = str(e)
                 if "LocalProtocolError" not in error_msg and "Can't send data" not in error_msg:
-                    yield f"data: {{'error': '{error_msg}', 'type': 'error'}}\n\n"
+                    error_data = {"error": error_msg, "type": "error"}
+                    yield f"data: {safe_json_dumps(error_data)}\n\n"
         
         return StreamingResponse(
             stream_and_save(),
