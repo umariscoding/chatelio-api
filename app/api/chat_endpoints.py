@@ -116,42 +116,61 @@ async def send_message(
             try:
                 # Add chat_id to response headers
                 async def generate_response():
-                    yield f"data: {{'chat_id': '{chat_id}', 'type': 'start'}}\n\n"
-                    
-                    async for chunk in stream_company_response(
-                        company_id=user.company_id,
-                        query=message_data.message,
-                        chat_id=chat_id,
-                        llm_model=message_data.model
-                    ):
-                        response_buffer.write(chunk)
-                        clean_chunk = chunk.replace(chr(10), ' ').replace(chr(13), ' ')
-                        yield f"data: {{'content': '{clean_chunk}', 'type': 'chunk'}}\n\n"
-                    
-                    yield f"data: {{'type': 'end'}}\n\n"
-                    
-                    # Save complete AI response
-                    complete_response = response_buffer.getvalue()
-                    await save_message(
-                        company_id=user.company_id,
-                        chat_id=chat_id,
-                        role="ai",
-                        content=complete_response
-                    )
+                    try:
+                        yield f"data: {{'chat_id': '{chat_id}', 'type': 'start'}}\n\n"
+                        
+                        async for chunk in stream_company_response(
+                            company_id=user.company_id,
+                            query=message_data.message,
+                            chat_id=chat_id,
+                            llm_model=message_data.model
+                        ):
+                            response_buffer.write(chunk)
+                            clean_chunk = chunk.replace(chr(10), ' ').replace(chr(13), ' ')
+                            yield f"data: {{'content': '{clean_chunk}', 'type': 'chunk'}}\n\n"
+                        
+                        yield f"data: {{'type': 'end'}}\n\n"
+                        
+                    except Exception as stream_error:
+                        # Handle streaming errors gracefully
+                        error_msg = str(stream_error)
+                        if "LocalProtocolError" not in error_msg and "Can't send data" not in error_msg:
+                            yield f"data: {{'error': '{error_msg}', 'type': 'error'}}\n\n"
+                        # For protocol errors, just log and continue - response was likely sent
+                        
+                    finally:
+                        # Always try to save the response, even if streaming failed
+                        try:
+                            complete_response = response_buffer.getvalue()
+                            if complete_response.strip():  # Only save non-empty responses
+                                await save_message(
+                                    company_id=user.company_id,
+                                    chat_id=chat_id,
+                                    role="ai",
+                                    content=complete_response
+                                )
+                        except Exception:
+                            pass  # Don't let save errors affect the response
                 
                 async for chunk in generate_response():
                     yield chunk
                     
             except Exception as e:
-                yield f"data: {{'error': '{str(e)}', 'type': 'error'}}\n\n"
+                # Handle any outer exceptions
+                error_msg = str(e)
+                if "LocalProtocolError" not in error_msg and "Can't send data" not in error_msg:
+                    yield f"data: {{'error': '{error_msg}', 'type': 'error'}}\n\n"
         
         return StreamingResponse(
             stream_and_save(),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Connection": "keep-alive",
-                "X-Chat-ID": chat_id
+                "X-Chat-ID": chat_id,
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
+                "X-Accel-Buffering": "no"
             }
         )
         
@@ -291,14 +310,9 @@ async def setup_knowledge_base(
         if user.user_type != "company":
             raise HTTPException(status_code=403, detail="Only company users can set up knowledge base")
         
-        # For now, use the same dummy data for all companies
-        content = get_umar_azhar_content()
-        doc_chunks = split_text_for_txt(content)
-        
-        # Set up company knowledge base
-        setup_company_knowledge_base(user.company_id, doc_chunks)
-        
-        return {"message": "Knowledge base set up successfully"}
+        # Knowledge base is now set up automatically when documents are uploaded
+        # This endpoint is deprecated - use /chat/upload-document or /chat/upload-text instead
+        return {"message": "Knowledge base is automatically set up when you upload documents. Use /chat/upload-document or /chat/upload-text endpoints to add content."}
         
     except HTTPException:
         raise
@@ -597,10 +611,8 @@ async def ensure_company_knowledge_base(company_id: str):
             clear_company_cache(company_id)
             return
         
-        # No documents found - set up with dummy data
-        content = get_umar_azhar_content()
-        doc_chunks = split_text_for_txt(content)
-        setup_company_knowledge_base(company_id, doc_chunks)
+        # No vectors found - company should upload documents
+        return
             
     except Exception as e:
         # If any error occurs, preserve existing content
