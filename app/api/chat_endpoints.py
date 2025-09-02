@@ -16,7 +16,7 @@ from app.services.langchain_service import (
     clear_company_knowledge_base,
     clear_company_cache
 )
-from app.services.fetchdata_service import get_umar_azhar_content
+from app.services.fetchdata_service import setup_default_knowledge_base
 from app.services.document_service import split_text_for_txt
 from app.db.database import (
     save_chat, 

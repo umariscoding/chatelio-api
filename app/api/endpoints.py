@@ -10,7 +10,7 @@ from app.db.database import (
     save_message_old as save_message
 )
 from app.services.document_service import split_text_for_txt 
-from app.services.fetchdata_service import get_umar_azhar_content
+from app.services.fetchdata_service import get_default_no_knowledge_content
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from io import StringIO
@@ -142,23 +142,15 @@ async def process_txt_file(query_model: QueryModel) -> StreamingResponse:
 @router.post("/update-data/")
 async def save_processed_output():
     """
-    Endpoint to update and process static content about Umar Azhar, creating embeddings and storing them in Pinecone.
+    Deprecated endpoint. Use company-specific knowledge base upload endpoints instead.
     
     Returns:
-        dict: Confirmation message upon successful processing.
+        dict: Deprecation message.
     """
-    try:
-        output_content = get_umar_azhar_content()
-        # create chunks to creating embedding
-        chunks = split_text_for_txt(output_content)
-        
-        # Create embeddings and store them in Pinecone (this clears cache automatically)
-        create_embeddings_and_store_text(chunks)
-        
-        return {"message": "Processed Umar Azhar content and embeddings saved successfully."}
-    except Exception as e:
-        print(f"Error saving processed output: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "This endpoint is deprecated. Please use /chat/upload-document or /chat/upload-text endpoints for company-specific knowledge base management.",
+        "status": "deprecated"
+    }
 
 @router.post("/clear-cache/")
 async def clear_cache_endpoint():

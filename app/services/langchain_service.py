@@ -458,6 +458,26 @@ async def stream_company_response(company_id: str, query: str, chat_id: str, llm
             yield "Error: Pinecone API key not configured. Please set a valid PINECONE_API_KEY in app/.env file."
             return
             
+        # Check if company has any real knowledge base content
+        try:
+            namespace = get_company_namespace(company_id)
+            index = pc.Index(BASE_INDEX_NAME)
+            stats = index.describe_index_stats()
+            
+            has_content = False
+            if stats.namespaces and namespace in stats.namespaces:
+                vector_count = stats.namespaces[namespace].vector_count
+                has_content = vector_count > 1  # More than just the default fallback message
+                
+            # If no real content, provide helpful message
+            if not has_content:
+                yield "I apologize, but this company hasn't uploaded any knowledge base content yet. I'm unable to provide specific information about their products, services, or policies without proper documentation. Please contact the company directly for assistance, or ask them to upload their knowledge base content to enable me to help you better."
+                return
+                
+        except Exception:
+            # If we can't check, continue with normal flow
+            pass
+            
         # Get company-specific RAG chain with comprehensive error handling
         try:
             rag_chain = get_company_rag_chain(company_id, llm_model)

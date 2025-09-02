@@ -19,7 +19,7 @@ from app.services.langchain_service import (
     get_company_vector_store,
     setup_company_knowledge_base
 )
-from app.services.fetchdata_service import get_umar_azhar_content
+from app.services.fetchdata_service import get_default_no_knowledge_content
 from app.services.document_service import split_text_for_txt
 import uuid
 import json
@@ -465,14 +465,14 @@ async def ensure_company_knowledge_base(company_id: str):
         retriever = vector_store.as_retriever(search_kwargs={"k": 1})
         docs = retriever.invoke("test query")
         
-        # If no documents found, set up knowledge base
+        # If no documents found, set up default knowledge base
         if not docs:
-            content = get_umar_azhar_content()
+            content = get_default_no_knowledge_content()
             doc_chunks = split_text_for_txt(content)
             setup_company_knowledge_base(company_id, doc_chunks)
             
     except Exception as e:
-        # If any error occurs, set up knowledge base
-        content = get_umar_azhar_content()
+        # If any error occurs, set up default knowledge base
+        content = get_default_no_knowledge_content()
         doc_chunks = split_text_for_txt(content)
         setup_company_knowledge_base(company_id, doc_chunks) 
