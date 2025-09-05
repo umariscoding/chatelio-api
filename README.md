@@ -1,12 +1,16 @@
-# Umar Azhar Personal Assistant with RAG Capabilities
+# Chatelio - Multi-Tenant Chatbot-as-a-Service Platform
 
-A FastAPI-based application that provides a personal assistant with Retrieval-Augmented Generation (RAG) capabilities using Google's Gemini AI model and Pinecone vector database. This chatbot can answer questions about Umar Azhar's background, experience, and skills.
+A FastAPI-based multi-tenant chatbot platform that provides Chatbot-as-a-Service with Retrieval-Augmented Generation (RAG) capabilities. Companies can create their own chatbots, upload knowledge bases, and deploy them with custom subdomains.
 
 ## Features
 
-- **RAG-powered Q&A**: Ask questions about Umar Azhar's professional background, education, and experience
-- **Chat History**: Persistent chat history with SQLite database
-- **Document Processing**: Automatic processing and embedding of Umar Azhar's professional information
+- **Multi-Tenant Architecture**: Complete company isolation with separate knowledge bases
+- **RAG-powered Q&A**: Companies can upload documents and create intelligent chatbots
+- **Subdomain Routing**: Each company gets their own chatbot URL (e.g., `companyname.chatelio.com`)
+- **Guest & Registered Users**: Support for both anonymous guests and registered users
+- **Document Management**: Upload and manage knowledge base documents
+- **Chat History**: Persistent chat history with complete user isolation
+- **Authentication**: JWT-based authentication with role-based access control
 - **Streaming Responses**: Real-time streaming of AI responses
 - **RESTful API**: Full REST API for integration with frontend applications
 
