@@ -9,7 +9,7 @@ from app.auth import create_user_tokens, create_guest_tokens
 from app.auth.dependencies import get_current_user, get_current_user_or_guest, UserContext
 from app.db.database import (
     create_company, get_company_by_id, create_user, authenticate_user,
-    create_guest_session, get_user_by_id, get_guest_session
+    create_guest_session, get_user_by_id, get_guest_session, get_users_by_company_id
 )
 
 router = APIRouter(prefix="/users", tags=["user_management"])
@@ -334,6 +334,68 @@ async def get_company_info(company_id: str, current_user: UserContext = Depends(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get company info: {str(e)}"
+        )
+
+@router.get("/company/{company_id}/users")
+async def get_company_users(
+    company_id: str, 
+    current_user: UserContext = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get all users for a specific company.
+    
+    Only company admins can access their own company's user list.
+    Regular users and guests cannot access this endpoint.
+    
+    Args:
+        company_id: Company identifier
+        current_user: Current authenticated user (must be company)
+        
+    Returns:
+        Dict containing list of users for the company
+        
+    Raises:
+        HTTPException: If user is not authorized or company not found
+    """
+    try:
+        # Security check: Only companies can access user lists
+        if not current_user.is_company():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Only company admins can view user lists"
+            )
+        
+        # Security check: Companies can only access their own user lists
+        if current_user.company_id != company_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only access your own company's users"
+            )
+        
+        # Verify company exists
+        company = await get_company_by_id(company_id)
+        if not company:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Company not found"
+            )
+        
+        # Get all users for the company
+        users = await get_users_by_company_id(company_id)
+        
+        return {
+            "company_id": company_id,
+            "company_name": company["name"],
+            "total_users": len(users),
+            "users": users
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get company users: {str(e)}"
         )
 
 # Health check endpoint
