@@ -174,6 +174,8 @@ class CompanySlugModel(BaseModel):
 
 class PublishChatbotModel(BaseModel):
     is_published: bool
+
+class ChatbotInfoModel(BaseModel):
     chatbot_title: Optional[str] = None
     chatbot_description: Optional[str] = None
 

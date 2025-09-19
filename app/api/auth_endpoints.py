@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Dict, Any
-from app.models.models import CompanyRegisterModel, CompanyLoginModel, CompanySlugModel, PublishChatbotModel
+from app.models.models import CompanyRegisterModel, CompanyLoginModel, CompanySlugModel, PublishChatbotModel, ChatbotInfoModel
 from app.auth import (
     create_company_tokens, verify_password, get_password_hash,
     refresh_access_token, get_current_user_info
@@ -14,7 +14,7 @@ from app.auth import (
 from app.auth.dependencies import get_current_company, UserContext
 from app.db.database import (
     create_company, authenticate_company, get_company_by_id,
-    update_company_slug, publish_chatbot, get_company_by_slug,
+    update_company_slug, publish_chatbot, update_chatbot_info, get_company_by_slug,
     get_users_by_company_id
 )
 from app.core.config import get_chatbot_url
@@ -366,9 +366,7 @@ async def publish_chatbot_endpoint(
         # Publish/unpublish chatbot
         success = await publish_chatbot(
             company_id=current_company.company_id,
-            is_published=publish_data.is_published,
-            chatbot_title=publish_data.chatbot_title,
-            chatbot_description=publish_data.chatbot_description
+            is_published=publish_data.is_published
         )
         
         if not success:
@@ -393,6 +391,65 @@ async def publish_chatbot_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to publish chatbot: {str(e)}"
+        )
+
+@router.put("/company/chatbot-info")
+async def update_chatbot_info_endpoint(
+    chatbot_data: ChatbotInfoModel,
+    current_company: UserContext = Depends(get_current_company)
+) -> Dict[str, Any]:
+    """
+    Update company chatbot title and description.
+    
+    Args:
+        chatbot_data: Chatbot information to update
+        current_company: Current company context
+        
+    Returns:
+        dict: Success message and updated info
+        
+    Raises:
+        HTTPException: If update fails
+    """
+    try:
+        # Validate that at least one field is provided
+        if chatbot_data.chatbot_title is None and chatbot_data.chatbot_description is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one field (chatbot_title or chatbot_description) must be provided"
+            )
+        
+        # Update chatbot info
+        success = await update_chatbot_info(
+            company_id=current_company.company_id,
+            chatbot_title=chatbot_data.chatbot_title,
+            chatbot_description=chatbot_data.chatbot_description
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update chatbot information"
+            )
+        
+        response_data = {
+            "message": "Chatbot information updated successfully"
+        }
+        
+        # Include the updated values in response
+        if chatbot_data.chatbot_title is not None:
+            response_data["chatbot_title"] = chatbot_data.chatbot_title
+        if chatbot_data.chatbot_description is not None:
+            response_data["chatbot_description"] = chatbot_data.chatbot_description
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update chatbot info: {str(e)}"
         )
 
 @router.get("/company/chatbot-status")

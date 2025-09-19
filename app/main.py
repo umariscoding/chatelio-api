@@ -6,6 +6,7 @@ from app.api.auth_endpoints import router as auth_router
 from app.api.user_endpoints import router as user_router
 from app.api.chat_endpoints import router as chat_router
 from app.api.public_endpoints import router as public_router
+from app.api.analytics_endpoints import router as analytics_router
 
 app = FastAPI()
 
@@ -99,6 +100,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(chat_router)
 app.include_router(public_router)
+app.include_router(analytics_router)
 app.include_router(api_router)
 
 # Add root health check

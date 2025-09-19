@@ -209,15 +209,50 @@ async def update_company_slug(company_id: str, slug: str) -> bool:
     finally:
         db.close()
 
-async def publish_chatbot(company_id: str, is_published: bool, chatbot_title: Optional[str] = None, chatbot_description: Optional[str] = None) -> bool:
+async def update_chatbot_info(company_id: str, chatbot_title: Optional[str] = None, chatbot_description: Optional[str] = None) -> bool:
+    """
+    Update company's chatbot title and description.
+    
+    Args:
+        company_id: Company ID
+        chatbot_title: New chatbot title (optional)
+        chatbot_description: New chatbot description (optional)
+        
+    Returns:
+        bool: True if updated successfully, False otherwise
+    """
+    db = SessionLocal()
+    try:
+        update_data = {
+            Company.updated_at: datetime.now()
+        }
+        
+        if chatbot_title is not None:
+            update_data[Company.chatbot_title] = chatbot_title
+            
+        if chatbot_description is not None:
+            update_data[Company.chatbot_description] = chatbot_description
+        
+        # Only update if there's something to update
+        if len(update_data) > 1:  # More than just updated_at
+            result = db.query(Company).filter(Company.company_id == company_id).update(update_data)
+            db.commit()
+            return result > 0
+        
+        return True  # Nothing to update is considered success
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise e
+    finally:
+        db.close()
+
+async def publish_chatbot(company_id: str, is_published: bool) -> bool:
     """
     Publish or unpublish a company's chatbot.
     
     Args:
         company_id: Company ID
         is_published: Whether to publish or unpublish
-        chatbot_title: Custom chatbot title
-        chatbot_description: Custom chatbot description
         
     Returns:
         bool: True if updated successfully, False otherwise
@@ -233,12 +268,6 @@ async def publish_chatbot(company_id: str, is_published: bool, chatbot_title: Op
             update_data[Company.published_at] = datetime.now()
         else:
             update_data[Company.published_at] = None
-            
-        if chatbot_title is not None:
-            update_data[Company.chatbot_title] = chatbot_title
-            
-        if chatbot_description is not None:
-            update_data[Company.chatbot_description] = chatbot_description
         
         result = db.query(Company).filter(Company.company_id == company_id).update(update_data)
         db.commit()
