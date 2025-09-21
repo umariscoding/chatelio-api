@@ -14,8 +14,6 @@ from app.core.config import DATABASE_URL
 from app.utils.password import get_password_hash, verify_password
 
 # Create new database for multi-tenant setup
-DATABASE_URL = "sqlite:///multi_tenant_chat.db"
-
 engine = create_engine(DATABASE_URL)
 Base.metadata.create_all(engine)
 SessionLocal = sessionmaker(bind=engine)
@@ -586,36 +584,15 @@ async def fetch_company_chats(company_id: str, user_id: Optional[str] = None, se
             
         chats = query.all()
         
-        if not chats:
-            # Create default chat for the company
-            default_chat = Chat(
-                company_id=company_id,
-                title="Default Chat",
-                user_id=user_id,
-                session_id=session_id,
-                is_guest=(session_id is not None)
-            )
-            db.add(default_chat)
-            db.commit()
-            db.refresh(default_chat)
-            
-            result = [{
-                "chat_id": default_chat.chat_id,
-                "title": default_chat.title,
-                "is_guest": default_chat.is_guest,
-                "is_deleted": default_chat.is_deleted,
-                "created_at": default_chat.created_at.isoformat()
-            }]
-        else:
-            result = [
-                {
-                    "chat_id": chat.chat_id,
-                    "title": chat.title,
-                    "is_guest": chat.is_guest,
-                    "is_deleted": chat.is_deleted,
-                    "created_at": chat.created_at.isoformat()
-                } for chat in chats
-            ]
+        result = [
+            {
+                "chat_id": chat.chat_id,
+                "title": chat.title,
+                "is_guest": chat.is_guest,
+                "is_deleted": chat.is_deleted,
+                "created_at": chat.created_at.isoformat()
+            } for chat in chats
+        ]
     except SQLAlchemyError:
         result = []
     finally:

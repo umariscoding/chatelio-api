@@ -164,7 +164,6 @@ async def clear_cache_endpoint():
         clear_cache()
         return {"message": "Cache cleared successfully."}
     except Exception as e:
-        print(f"Error clearing cache: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/force-refresh-prompts/")
@@ -180,5 +179,4 @@ async def force_refresh_prompts_endpoint():
         force_refresh_all_rag_chains()
         return {"message": "All RAG chains refreshed with updated prompts successfully."}
     except Exception as e:
-        print(f"Error refreshing RAG chains: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

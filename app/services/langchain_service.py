@@ -232,8 +232,6 @@ def process_company_document(company_id: str, document_content: str, doc_id: Opt
         return True
         
     except Exception as e:
-        print(f"Error processing document for company {company_id}: {str(e)}")
-        
         # Update document status to failed if doc_id is provided
         if doc_id:
             try:
@@ -275,7 +273,6 @@ def clear_company_knowledge_base(company_id: str):
         return True
         
     except Exception as e:
-        print(f"Error clearing knowledge base for company {company_id}: {str(e)}")
         return False
 
 def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> RunnableWithMessageHistory:
@@ -365,7 +362,6 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
                 return documents
                 
             except Exception as e:
-                print(f"Error in custom retriever: {str(e)}")
                 return []
     
     # Use custom retriever for reliable document retrieval
