@@ -23,16 +23,27 @@ from sqlalchemy import update
 load_dotenv(dotenv_path='app/.env')
 
 # Retrieve API keys from environment variables
-openai_api_key = os.getenv("OPENAI_API_KEY") 
-if not openai_api_key:
-    raise ValueError("OpenAI API key is not set in the environment variables.")
-
+openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
-if not pinecone_api_key:
-    raise ValueError("Pinecone API key is not set in the environment variables.")
 
-# Initialize Pinecone
-pc = Pinecone(api_key=pinecone_api_key)
+# Only raise errors when the services are actually used, not at import time
+def check_openai_key():
+    if not openai_api_key:
+        raise ValueError("OpenAI API key is not set in the environment variables.")
+
+def check_pinecone_key():
+    if not pinecone_api_key:
+        raise ValueError("Pinecone API key is not set in the environment variables.")
+
+# Initialize Pinecone (lazy initialization)
+pc = None
+
+def get_pinecone_client():
+    global pc
+    if pc is None:
+        check_pinecone_key()
+        pc = Pinecone(api_key=pinecone_api_key)
+    return pc
 
 # Base index name for all companies
 BASE_INDEX_NAME = "chatelio-multi-tenant"
@@ -59,10 +70,10 @@ def ensure_base_index_exists():
     Ensure the base multi-tenant index exists with optimal configuration.
     """
     try:
-        existing_indexes = [index_info["name"] for index_info in pc.list_indexes()]
+        existing_indexes = [index_info["name"] for index_info in get_pinecone_client().list_indexes()]
         
         if BASE_INDEX_NAME not in existing_indexes:
-            pc.create_index(
+            get_pinecone_client().create_index(
                 name=BASE_INDEX_NAME,
                 dimension=1536,  # OpenAI text-embedding-3-small dimension
                 metric="cosine",  # Best for text similarity
@@ -74,7 +85,7 @@ def ensure_base_index_exists():
             # Wait for index to be ready with timeout
             max_wait = 300  # 5 minutes timeout
             waited = 0
-            while not pc.describe_index(BASE_INDEX_NAME).status["ready"]:
+            while not get_pinecone_client().describe_index(BASE_INDEX_NAME).status["ready"]:
                 if waited >= max_wait:
                     raise TimeoutError(f"Index creation timed out after {max_wait} seconds")
                 time.sleep(5)
@@ -103,6 +114,7 @@ def create_company_vector_store(company_id: str, doc_chunks: List[str]) -> Pinec
     namespace = get_company_namespace(company_id)
     
     # Create embeddings
+    check_openai_key()
     embedding_function = OpenAIEmbeddings()
     
     # Create vector store with company-specific namespace using best practices
@@ -152,11 +164,12 @@ def get_company_vector_store(company_id: str) -> PineconeVectorStore:
     namespace = get_company_namespace(company_id)
     
     # Create embeddings
+    check_openai_key()
     embedding_function = OpenAIEmbeddings()
     
     # Create vector store connection with company-specific namespace
     # Use explicit index reference for consistent connections
-    pinecone_index = pc.Index(BASE_INDEX_NAME)
+    pinecone_index = get_pinecone_client().Index(BASE_INDEX_NAME)
     
     vector_store = PineconeVectorStore(
         index=pinecone_index,
@@ -264,7 +277,7 @@ def clear_company_knowledge_base(company_id: str):
         namespace = get_company_namespace(company_id)
         
         # Delete all vectors in the namespace
-        index = pc.Index(BASE_INDEX_NAME)
+        index = get_pinecone_client().Index(BASE_INDEX_NAME)
         index.delete(delete_all=True, namespace=namespace)
         
         # Clear caches
@@ -299,8 +312,9 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
     # Create fresh vector store for reliable connections
     ensure_base_index_exists()
     namespace = get_company_namespace(company_id)
+    check_openai_key()
     embedding_function = OpenAIEmbeddings()
-    pinecone_index = pc.Index(BASE_INDEX_NAME)
+    pinecone_index = get_pinecone_client().Index(BASE_INDEX_NAME)
     
     # Fix the vector store wrapper issue by ensuring proper initialization
     vector_store = PineconeVectorStore(
@@ -374,6 +388,7 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
             google_api_key=GOOGLE_API_KEY
         )
     elif llm_model == "OpenAI":
+        check_openai_key()
         llm = ChatOpenAI()
     else:
         raise ValueError(f"Model {llm_model} not available")
@@ -457,7 +472,7 @@ async def stream_company_response(company_id: str, query: str, chat_id: str, llm
         # Check if company has any real knowledge base content
         try:
             namespace = get_company_namespace(company_id)
-            index = pc.Index(BASE_INDEX_NAME)
+            index = get_pinecone_client().Index(BASE_INDEX_NAME)
             stats = index.describe_index_stats()
             
             has_content = False
