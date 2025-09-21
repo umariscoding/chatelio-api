@@ -1,3 +1,7 @@
+# Environment files
+.env
+app/.env
+
 # Python
 __pycache__/
 *.py[cod]
@@ -25,18 +29,9 @@ venv/
 env/
 ENV/
 
-# Environment Variables
-.env
-.env.local
-.env.production
-
-# Database
+# Database files
 *.db
-*.sqlite
 *.sqlite3
-
-# Logs
-*.log
 
 # IDE
 .vscode/
@@ -44,10 +39,15 @@ ENV/
 *.swp
 *.swo
 
+# Logs
+*.log
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Project specific
+# ChromaDB
 chroma_db/
-chat_history.db
+
+# Railway
+.railway/
