@@ -1,4 +1,4 @@
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 def split_text_for_txt(documents):
     """Split the provided text into optimized chunks for RAG performance.
