@@ -6,7 +6,7 @@ load_dotenv(dotenv_path='app/.env')
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-pro-latest")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/embedding-001")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "chroma_db")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://username:password@localhost:5432/chatelio_db")
 

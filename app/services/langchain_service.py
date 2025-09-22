@@ -12,7 +12,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from typing import AsyncGenerator, List, Dict, Optional
-from app.core.config import GOOGLE_API_KEY, MODEL_NAME
+from app.core.config import GOOGLE_API_KEY, MODEL_NAME, EMBEDDING_MODEL
 import asyncio
 from app.services.prompts import contextualize_q_system_prompt, qa_system_prompt
 from app.db.database import load_session_history, SessionLocal
@@ -75,7 +75,7 @@ def ensure_base_index_exists():
         if BASE_INDEX_NAME not in existing_indexes:
             get_pinecone_client().create_index(
                 name=BASE_INDEX_NAME,
-                dimension=1536,  # OpenAI text-embedding-3-small dimension
+                dimension=1536,  # OpenAI text-embedding-3-small dimension (same as ada-002)
                 metric="cosine",  # Best for text similarity
                 spec=ServerlessSpec(
                     cloud="aws", 
@@ -115,7 +115,7 @@ def create_company_vector_store(company_id: str, doc_chunks: List[str]) -> Pinec
     
     # Create embeddings
     check_openai_key()
-    embedding_function = OpenAIEmbeddings()
+    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL)
     
     # Create vector store with company-specific namespace using best practices
     try:
@@ -165,7 +165,7 @@ def get_company_vector_store(company_id: str) -> PineconeVectorStore:
     
     # Create embeddings
     check_openai_key()
-    embedding_function = OpenAIEmbeddings()
+    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL)
     
     # Create vector store connection with company-specific namespace
     # Use explicit index reference for consistent connections
@@ -313,7 +313,7 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
     ensure_base_index_exists()
     namespace = get_company_namespace(company_id)
     check_openai_key()
-    embedding_function = OpenAIEmbeddings()
+    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL)
     pinecone_index = get_pinecone_client().Index(BASE_INDEX_NAME)
     
     # Fix the vector store wrapper issue by ensuring proper initialization
