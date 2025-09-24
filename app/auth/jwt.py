@@ -2,18 +2,18 @@
 JWT Authentication utilities for multi-tenant chatbot platform
 """
 
-import os
 import jwt
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Union
 from jose import JWTError
 from app.utils.password import verify_password, get_password_hash
+from app.core.config import settings
 
-# JWT Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+# JWT Configuration from centralized settings
+SECRET_KEY = settings.jwt_secret_key
+ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
+REFRESH_TOKEN_EXPIRE_DAYS = settings.refresh_token_expire_days
 
 def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None) -> str:
     """

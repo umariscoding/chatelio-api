@@ -320,26 +320,28 @@ async def send_public_message(
                 detail="Chatbot not found or not published"
             )
         
+        company_id = company["company_id"]
+        
         # Generate chat_id if not provided
         chat_id = message_data.chat_id or str(uuid.uuid4())
         
         # Create guest session for this company
         guest_session = await create_guest_session(
-            company_id=company["company_id"],
+            company_id=company_id,
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent")
         )
         
         # Save chat and human message
         await save_chat(
-            company_id=company["company_id"],
+            company_id=company_id,
             chat_id=chat_id,
             title="Public Chat",
             session_id=guest_session["session_id"]
         )
         
         await save_message(
-            company_id=company["company_id"],
+            company_id=company_id,
             chat_id=chat_id,
             role="human",
             content=message_data.message
@@ -354,22 +356,24 @@ async def send_public_message(
                 # Stream AI response
                 response_buffer = []
                 async for chunk in stream_company_response(
-                    company_id=company["company_id"],
+                    company_id=company_id,
                     query=message_data.message,
                     chat_id=chat_id,
                     llm_model=message_data.model
                 ):
                     response_buffer.append(chunk)
                     escaped_chunk = chunk.replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
-                    yield f"data: {json.dumps({'content': escaped_chunk, 'type': 'chunk'})}\n\n"
+                    chunk_data = {'content': escaped_chunk, 'type': 'chunk'}
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
                 
                 # Send completion signal
-                yield f"data: {json.dumps({'type': 'end'})}\n\n"
+                end_data = {'type': 'end'}
+                yield f"data: {json.dumps(end_data)}\n\n"
                 
                 # Save complete AI response
                 complete_response = ''.join(response_buffer)
                 await save_message(
-                    company_id=company["company_id"],
+                    company_id=company_id,
                     chat_id=chat_id,
                     role="ai",
                     content=complete_response
@@ -377,8 +381,8 @@ async def send_public_message(
                 
             except Exception as e:
                 error_msg = str(e).replace('"', '\\"')
-                yield f"data: {json.dumps({'error': error_msg, 'type': 'error'})}\n\n"
-        
+                error_data = {'error': error_msg, 'type': 'error'}
+                yield f"data: {json.dumps(error_data)}\n\n"
         return StreamingResponse(
             stream_and_save(),
             media_type="text/event-stream",
@@ -396,7 +400,7 @@ async def send_public_message(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process chat message: {str(e)}"
+            detail=f"Internal server error: {str(e)}"
         )
 
 @router.get("/company/{company_slug}/info")

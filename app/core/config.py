@@ -1,19 +1,60 @@
-import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+from typing import Optional
 
-# Load environment variables from .env file
-load_dotenv(dotenv_path='app/.env')
+class Settings(BaseSettings):
+    """
+    Application settings using Pydantic BaseSettings.
+    Automatically loads from environment variables and .env file.
+    """
+    
+    # API Keys
+    openai_api_key: Optional[str] = None
+    pinecone_api_key: Optional[str] = None
+    
+    # JWT Configuration
+    jwt_secret_key: str = "your-secret-key-change-this-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+    
+    # AI Configuration
+    embedding_model: str = "text-embedding-3-small"
+    
+    # Database
+    database_url: str = "postgresql://username:password@localhost:5432/chatelio_db"
+    
+    # Domain Configuration
+    base_domain: str = "mysite.com"
+    chatbot_protocol: str = "https"  # http for dev, https for prod
+    use_subdomain_routing: bool = True
+    
+    # Development Settings
+    debug: bool = False
+    log_level: str = "INFO"
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        extra = "ignore"  # Ignore extra environment variables
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-pro-latest")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "chroma_db")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://username:password@localhost:5432/chatelio_db")
+@lru_cache()
+def get_settings():
+    """
+    Create a cached instance of settings.
+    This ensures settings are loaded only once.
+    """
+    return Settings()
 
-# Subdomain configuration for public chatbots
-BASE_DOMAIN = os.getenv("BASE_DOMAIN", "mysite.com")
-CHATBOT_PROTOCOL = os.getenv("CHATBOT_PROTOCOL", "https")  # http for dev, https for prod
-USE_SUBDOMAIN_ROUTING = os.getenv("USE_SUBDOMAIN_ROUTING", "true").lower() == "true"
+# Export settings instance for easy access
+settings = get_settings()
+
+# Backward compatibility - export individual variables
+EMBEDDING_MODEL = settings.embedding_model
+DATABASE_URL = settings.database_url
+BASE_DOMAIN = settings.base_domain
+CHATBOT_PROTOCOL = settings.chatbot_protocol
+USE_SUBDOMAIN_ROUTING = settings.use_subdomain_routing
 
 def get_chatbot_url(slug: str) -> str:
     """

@@ -1,10 +1,7 @@
-import os
 import time
-from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pinecone import Pinecone, ServerlessSpec
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
@@ -12,7 +9,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from typing import AsyncGenerator, List, Dict, Optional
-from app.core.config import GOOGLE_API_KEY, MODEL_NAME, EMBEDDING_MODEL
+from app.core.config import settings, EMBEDDING_MODEL
 import asyncio
 from app.services.prompts import contextualize_q_system_prompt, qa_system_prompt
 from app.db.database import load_session_history, SessionLocal
@@ -20,20 +17,22 @@ from app.services.document_service import split_text_for_txt
 from app.models.models import Document
 from sqlalchemy import update
 
-load_dotenv(dotenv_path='app/.env')
-
-# Retrieve API keys from environment variables
-openai_api_key = os.getenv("OPENAI_API_KEY")
-pinecone_api_key = os.getenv("PINECONE_API_KEY")
-
 # Only raise errors when the services are actually used, not at import time
 def check_openai_key():
-    if not openai_api_key:
+    if not settings.openai_api_key:
         raise ValueError("OpenAI API key is not set in the environment variables.")
 
 def check_pinecone_key():
-    if not pinecone_api_key:
+    if not settings.pinecone_api_key:
         raise ValueError("Pinecone API key is not set in the environment variables.")
+
+def get_openai_api_key():
+    """Get the current OpenAI API key from settings."""
+    return settings.openai_api_key
+
+def get_pinecone_api_key():
+    """Get the current Pinecone API key from settings."""  
+    return settings.pinecone_api_key
 
 # Initialize Pinecone (lazy initialization)
 pc = None
@@ -42,7 +41,7 @@ def get_pinecone_client():
     global pc
     if pc is None:
         check_pinecone_key()
-        pc = Pinecone(api_key=pinecone_api_key)
+        pc = Pinecone(api_key=get_pinecone_api_key())
     return pc
 
 # Base index name for all companies
@@ -115,7 +114,10 @@ def create_company_vector_store(company_id: str, doc_chunks: List[str]) -> Pinec
     
     # Create embeddings
     check_openai_key()
-    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+    embedding_function = OpenAIEmbeddings(
+        model=EMBEDDING_MODEL,
+        openai_api_key=get_openai_api_key()
+    )
     
     # Create vector store with company-specific namespace using best practices
     try:
@@ -165,7 +167,10 @@ def get_company_vector_store(company_id: str) -> PineconeVectorStore:
     
     # Create embeddings
     check_openai_key()
-    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+    embedding_function = OpenAIEmbeddings(
+        model=EMBEDDING_MODEL,
+        openai_api_key=get_openai_api_key()
+    )
     
     # Create vector store connection with company-specific namespace
     # Use explicit index reference for consistent connections
@@ -313,7 +318,8 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
     ensure_base_index_exists()
     namespace = get_company_namespace(company_id)
     check_openai_key()
-    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+    openai_api_key = get_openai_api_key()
+    embedding_function = OpenAIEmbeddings(model=EMBEDDING_MODEL, openai_api_key=openai_api_key)
     pinecone_index = get_pinecone_client().Index(BASE_INDEX_NAME)
     
     # Fix the vector store wrapper issue by ensuring proper initialization
@@ -381,17 +387,12 @@ def get_company_rag_chain(company_id: str, llm_model: str = "OpenAI") -> Runnabl
     # Use custom retriever for reliable document retrieval
     retriever = DirectPineconeRetriever(pinecone_index, embedding_function, namespace)
     
-    # Create LLM
-    if llm_model == "Gemini":
-        llm = ChatGoogleGenerativeAI(
-            model=MODEL_NAME, 
-            google_api_key=GOOGLE_API_KEY
-        )
-    elif llm_model == "OpenAI":
+    # Create LLM (using OpenAI only)
+    if llm_model == "OpenAI":
         check_openai_key()
-        llm = ChatOpenAI()
+        llm = ChatOpenAI(openai_api_key=openai_api_key)
     else:
-        raise ValueError(f"Model {llm_model} not available")
+        raise ValueError(f"Model {llm_model} not available. Only OpenAI is supported.")
     
     # Create prompts
     contextualize_q_prompt = ChatPromptTemplate.from_messages([
@@ -460,13 +461,17 @@ async def stream_company_response(company_id: str, query: str, chat_id: str, llm
     """
     try:
         # Check if OpenAI API key is available
-        if not openai_api_key or openai_api_key == "your-openai-api-key-here":
-            yield "Error: OpenAI API key not configured. Please set a valid OPENAI_API_KEY in app/.env file."
+        openai_key = get_openai_api_key()
+        
+        if not openai_key or openai_key == "your-openai-api-key-here":
+            yield "Error: OpenAI API key not configured. Please create a .env file in the project root and set OPENAI_API_KEY=your-actual-openai-key. You can get an API key from https://platform.openai.com/api-keys"
             return
             
-        # Check if Pinecone API key is available  
-        if not pinecone_api_key or pinecone_api_key == "your-pinecone-api-key-here":
-            yield "Error: Pinecone API key not configured. Please set a valid PINECONE_API_KEY in app/.env file."
+        # Check if Pinecone API key is available
+        pinecone_key = get_pinecone_api_key()
+        
+        if not pinecone_key or pinecone_key == "your-pinecone-api-key-here":
+            yield "Error: Pinecone API key not configured. Please create a .env file in the project root and set PINECONE_API_KEY=your-actual-pinecone-key. You can get an API key from https://pinecone.io/"
             return
             
         # Check if company has any real knowledge base content
